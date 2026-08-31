@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { comparePassword, signToken } from "@/lib/services/auth/jwt";
+import { comparePassword, hashPassword, signToken } from "@/lib/services/auth/jwt";
 import { AUTH_COOKIE_NAME } from "@/lib/services/auth/session";
 
 export async function POST(req: NextRequest) {
@@ -11,10 +11,60 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
       include: { tenant: true },
     });
+
+    if (!user) {
+      // Auto-bootstrap default accounts on fresh cloud DB
+      try {
+        const userCount = await prisma.user.count();
+        if (userCount === 0) {
+          const passwordHash = await hashPassword("Password123!");
+          const demoTenant = await prisma.tenant.create({
+            data: {
+              name: "Acme Corp",
+              slug: "acme-corp",
+              status: "ACTIVE",
+              planTier: "PRO",
+              maxMessagesPerMonth: 25000,
+              maxFlows: 15,
+              maxCampaignLinks: 200,
+              maxStorageMb: 500,
+            },
+          });
+
+          await prisma.user.create({
+            data: {
+              email: "admin@platform.local",
+              name: "System Super Admin",
+              role: "SUPER_ADMIN",
+              passwordHash,
+              status: "ACTIVE",
+            },
+          });
+
+          await prisma.user.create({
+            data: {
+              tenantId: demoTenant.id,
+              email: "client@acme.com",
+              name: "Acme Admin",
+              role: "CLIENT_ADMIN",
+              passwordHash,
+              status: "ACTIVE",
+            },
+          });
+
+          user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase().trim() },
+            include: { tenant: true },
+          });
+        }
+      } catch (seedErr) {
+        console.warn("Auto-bootstrap check:", seedErr);
+      }
+    }
 
     if (!user) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
