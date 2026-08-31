@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acme Corp - Customer Portal & Embedded Chatbot Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    header {
+      background: #1e1b4b;
+      color: #ffffff;
+      padding: 24px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .hero {
+      max-width: 900px;
+      margin: 60px auto;
+      text-align: center;
+      padding: 0 20px;
+    }
+    h1 {
+      font-size: 42px;
+      font-weight: 900;
+      color: #1e1b4b;
+      margin-bottom: 16px;
+    }
+    p {
+      font-size: 18px;
+      color: #64748b;
+      line-height: 1.6;
+    }
+    .btn {
+      display: inline-block;
+      background: #4f46e5;
+      color: #ffffff;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      margin-top: 24px;
+      box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3);
+    }
+    .features {
+      max-width: 1000px;
+      margin: 60px auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      padding: 0 20px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .card h3 {
+      font-size: 20px;
+      margin-top: 0;
+      color: #1e293b;
+    }
+    .card p {
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="font-size: 20px; font-weight: 900;">Acme Corp</div>
+    <div>
+      <a href="#" style="color: #ffffff; text-decoration: none; font-size: 14px; margin-left: 20px;">Products</a>
+      <a href="#" style="color: #ffffff; text-decoration: none; font-size: 14px; margin-left: 20px;">Pricing</a>
+      <a href="#" style="color: #ffffff; text-decoration: none; font-size: 14px; margin-left: 20px;">Contact</a>
+    </div>
+  </header>
+
+  <div class="hero">
+    <h1>Welcome to Acme Cloud Solutions</h1>
+    <p>We build automated infrastructure for modern businesses. Look at the bottom-right corner to interact with our embedded chatbot widget!</p>
+    <a href="javascript:void(0)" class="btn">Explore Features</a>
+  </div>
+
+  <div class="features">
+    <div class="card">
+      <h3>🚀 Automated Decision Trees</h3>
+      <p>Multi-branch visual flow routing, quick reply buttons, and qualification logic.</p>
+    </div>
+    <div class="card">
+      <h3>⚡ Isolated Shadow DOM</h3>
+      <p>The embed widget runs inside a dedicated Shadow DOM preventing any CSS conflicts.</p>
+    </div>
+    <div class="card">
+      <h3>🎯 Trackable Dynamic Links</h3>
+      <p>Batch-generate personalized URLs with QR code downloads for campaigns.</p>
+    </div>
+  </div>
+
+  <!-- EMBEDDABLE CHATBOT WIDGET SCRIPT -->
+  <script src="/widget.js" data-tenant-slug="acme-corp" async></script>
+
+</body>
+</html>

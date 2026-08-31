@@ -1,0 +1,14 @@
+import "./patch-node24.cjs";
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  images: {
+    unoptimized: true,
+  },
+};
+
+export default nextConfig;
