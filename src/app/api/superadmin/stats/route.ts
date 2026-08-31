@@ -6,32 +6,45 @@ export async function GET(req: NextRequest) {
   try {
     await requireSuperAdmin();
 
-    const [
-      totalTenants,
-      activeTenants,
-      totalUsers,
-      totalFlows,
-      totalConversations,
-      totalMessages,
-      totalLeads,
-      recentAuditLogs,
-    ] = await Promise.all([
-      prisma.tenant.count(),
-      prisma.tenant.count({ where: { status: "ACTIVE" } }),
-      prisma.user.count(),
-      prisma.flow.count(),
-      prisma.conversation.count(),
-      prisma.message.count(),
-      prisma.lead.count(),
-      prisma.auditLog.findMany({
-        take: 10,
-        orderBy: { timestamp: "desc" },
-        include: {
-          tenant: { select: { name: true, slug: true } },
-          user: { select: { email: true, name: true } },
-        },
-      }),
-    ]);
+    let totalTenants = 0,
+      activeTenants = 0,
+      totalUsers = 0,
+      totalFlows = 0,
+      totalConversations = 0,
+      totalMessages = 0,
+      totalLeads = 0,
+      recentAuditLogs: any[] = [];
+
+    try {
+      [
+        totalTenants,
+        activeTenants,
+        totalUsers,
+        totalFlows,
+        totalConversations,
+        totalMessages,
+        totalLeads,
+        recentAuditLogs,
+      ] = await Promise.all([
+        prisma.tenant.count(),
+        prisma.tenant.count({ where: { status: "ACTIVE" } }),
+        prisma.user.count(),
+        prisma.flow.count(),
+        prisma.conversation.count(),
+        prisma.message.count(),
+        prisma.lead.count(),
+        prisma.auditLog.findMany({
+          take: 10,
+          orderBy: { timestamp: "desc" },
+          include: {
+            tenant: { select: { name: true, slug: true } },
+            user: { select: { email: true, name: true } },
+          },
+        }),
+      ]);
+    } catch (dbErr) {
+      console.warn("DB stats fallback notice:", dbErr);
+    }
 
     return NextResponse.json({
       metrics: {

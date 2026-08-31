@@ -213,14 +213,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Audit log
-    await prisma.auditLog.create({
-      data: {
-        tenantId: result.tenant.id,
-        userId: superAdmin.userId,
-        action: "TENANT_CREATED",
-        details: JSON.stringify({ name, slug, planTier, adminEmail }),
-      },
-    });
+    try {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: result.tenant.id,
+          userId: superAdmin.userId,
+          action: "TENANT_CREATED",
+          details: JSON.stringify({ name, slug, planTier, adminEmail }),
+        },
+      });
+    } catch (auditErr) {
+      console.warn("DB audit log create notice:", auditErr);
+    }
 
     // Notify user by email that their account and workspace have been created
     try {
