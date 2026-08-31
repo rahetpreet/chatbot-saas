@@ -1,6 +1,6 @@
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -17,10 +17,10 @@ model Tenant {
   maxFlows            Int      @default(5)
   maxCampaignLinks    Int      @default(50)
   maxStorageMb        Int      @default(100)
-  customSmtpConfig    String?  // JSON string
-  aiConfig            String?  // JSON string
-  widgetSettings      String?  // JSON string
-  branding            String?  // JSON string
+  customSmtpConfig    String?  // JSON string: host, port, user, pass, secure, from
+  aiConfig            String?  // JSON string: enabled, provider, model, apiKey, systemPrompt, temperature
+  widgetSettings      String?  // JSON string: primaryColor, secondaryColor, position, launcherStyle, title, subtitle, greeting, avatar, soundEnabled, allowedDomains
+  branding            String?  // JSON string: logoUrl, customDomain
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -40,12 +40,12 @@ model Tenant {
 
 model User {
   id                 String    @id @default(cuid())
-  tenantId           String?
+  tenantId           String?   // NULL for superadmin
   role               String    @default("CLIENT_ADMIN") // SUPER_ADMIN, CLIENT_ADMIN, AGENT
   email              String    @unique
   name               String
   passwordHash       String
-  status             String    @default("ACTIVE")
+  status             String    @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
   resetToken         String?
   resetTokenExpires  DateTime?
   createdAt          DateTime  @default(now())
@@ -66,11 +66,11 @@ model Flow {
   version         Int      @default(1)
   status          String   @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
   isDefault       Boolean  @default(false)
-  nodes           String   @default("[]")
-  edges           String   @default("[]")
-  publishedNodes  String?
-  publishedEdges  String?
-  triggers        String?
+  nodes           String   @default("[]") // JSON string of ReactFlow nodes
+  edges           String   @default("[]") // JSON string of ReactFlow edges
+  publishedNodes  String?  // JSON string snapshot
+  publishedEdges  String?  // JSON string snapshot
+  triggers        String?  // JSON string: onWidgetOpen, delaySeconds, urlPatterns
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -88,7 +88,7 @@ model Campaign {
   name             String
   slug             String
   flowId           String?
-  metadata         String?
+  metadata         String?  // JSON string: utmSource, utmMedium, tags
   opensCount       Int      @default(0)
   conversionsCount Int      @default(0)
   createdAt        DateTime @default(now())
@@ -110,11 +110,11 @@ model CampaignContact {
   email             String?
   phone             String?
   customUrlSlug     String    @unique
-  metadata          String?
+  metadata          String?   // JSON string
   opensCount        Int       @default(0)
   firstOpenedAt     DateTime?
   lastOpenedAt      DateTime?
-  status            String    @default("PENDING")
+  status            String    @default("PENDING") // PENDING, OPENED, COMPLETED
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -133,9 +133,9 @@ model Conversation {
   flowId            String?
   campaignContactId String?
   visitorId         String
-  sessionStatus     String    @default("ACTIVE")
-  visitorInfo       String?
-  collectedData     String?   @default("{}")
+  sessionStatus     String    @default("ACTIVE") // ACTIVE, HANDOVER, RESOLVED, ABANDONED
+  visitorInfo       String?   // JSON string: ip, browser, os, device, country, referrer, utm
+  collectedData     String?   @default("{}") // JSON string
   currentNodeId     String?
   startedAt         DateTime  @default(now())
   lastActiveAt      DateTime  @default(now())
@@ -157,10 +157,10 @@ model Conversation {
 model Message {
   id             String   @id @default(cuid())
   conversationId String
-  senderType     String
+  senderType     String   // BOT, VISITOR, AI, AGENT
   senderName     String?
   content        String
-  attachments    String?
+  attachments    String?  // JSON string: array of { url, name, size, type }
   nodeId         String?
   timestamp      DateTime @default(now())
 
@@ -177,10 +177,10 @@ model Lead {
   name            String?
   email           String?
   phone           String?
-  contactInfo     String?
-  collectedFields String?
+  contactInfo     String?  // JSON string
+  collectedFields String?  // JSON string
   score           Int      @default(0)
-  status          String   @default("NEW")
+  status          String   @default("NEW") // NEW, CONTACTED, QUALIFIED, CONVERTED, ARCHIVED
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -197,7 +197,7 @@ model KnowledgeDoc {
   title     String
   category  String?
   content   String
-  embedding String?
+  embedding String?  // JSON or text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -211,9 +211,9 @@ model AnalyticsEvent {
   tenantId       String
   flowId         String?
   conversationId String?
-  eventType      String
+  eventType      String   // SESSION_START, NODE_VIEW, NODE_SUBMIT, BUTTON_CLICK, CAMPAIGN_OPEN, CONVERSION, HANDOVER_REQUEST
   nodeId         String?
-  metadata       String?
+  metadata       String?  // JSON string
   timestamp      DateTime @default(now())
 
   tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -230,7 +230,7 @@ model AuditLog {
   tenantId  String?
   userId    String?
   action    String
-  details   String?
+  details   String?  // JSON string
   ipAddress String?
   timestamp DateTime @default(now())
 
