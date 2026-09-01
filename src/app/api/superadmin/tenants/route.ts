@@ -5,6 +5,8 @@ import { hashPassword } from "@/lib/services/auth/jwt";
 import { slugify } from "@/lib/utils";
 import { sendAppEmail } from "@/lib/services/email";
 
+import mockStore from "@/lib/mockStore";
+
 export async function GET(req: NextRequest) {
   try {
     await requireSuperAdmin();
@@ -29,23 +31,8 @@ export async function GET(req: NextRequest) {
         },
       });
     } catch (dbErr) {
-      console.warn("Tenants DB query notice:", dbErr);
-      tenants = [
-        {
-          id: "t_acme_corp",
-          name: "Acme Corp",
-          slug: "acme-corp",
-          status: "ACTIVE",
-          planTier: "PRO",
-          maxMessagesPerMonth: 25000,
-          maxFlows: 15,
-          maxCampaignLinks: 200,
-          maxStorageMb: 500,
-          createdAt: new Date().toISOString(),
-          _count: { flows: 3, conversations: 12, leads: 5, campaigns: 2, users: 1 },
-          users: [{ id: "u_client", email: "client@acme.com", name: "Acme Admin", role: "CLIENT_ADMIN", status: "ACTIVE" }],
-        },
-      ];
+      console.warn("Tenants DB query notice (using mockStore):", dbErr);
+      tenants = mockStore.tenants;
     }
 
     return NextResponse.json({ tenants });
@@ -188,10 +175,9 @@ export async function POST(req: NextRequest) {
         return { tenant, admin };
       });
     } catch (dbErr) {
-      console.warn("DB tenant create notice:", dbErr);
-      result = {
-        tenant: {
-          id: `t_${slug}`,
+      console.warn("DB tenant create notice (using mockStore):", dbErr);
+      const createdTenant = mockStore.addTenant(
+        {
           name,
           slug,
           planTier,
@@ -199,9 +185,15 @@ export async function POST(req: NextRequest) {
           maxFlows: Number(maxFlows),
           maxCampaignLinks: Number(maxCampaignLinks),
           maxStorageMb: Number(maxStorageMb),
-          status: "ACTIVE",
-          createdAt: new Date().toISOString(),
         },
+        {
+          email: adminEmail.toLowerCase().trim(),
+          name: adminName || `${name} Admin`,
+        }
+      );
+
+      result = {
+        tenant: createdTenant,
         admin: {
           id: `u_${slug}_admin`,
           name: adminName || `${name} Admin`,

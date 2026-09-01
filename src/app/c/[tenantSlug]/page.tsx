@@ -32,7 +32,7 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
 
   useEffect(() => {
     initializeChat();
-  }, [tenantSlug, campaignSlug, contactSlug]);
+  }, [tenantSlug, campaignSlug, contactSlug, flowParam]);
 
   const initializeChat = async () => {
     setIsInitializing(true);
