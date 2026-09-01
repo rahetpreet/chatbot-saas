@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       collectedData = JSON.parse(conversation.collectedData || "{}");
     } catch {}
 
-    const history = conversation.messages.map((m) => ({
+    const history = (conversation.messages || []).map((m: any) => ({
       role: (m.senderType === "BOT" || m.senderType === "AI" ? "assistant" : "user") as "assistant" | "user",
       content: m.content,
     }));
