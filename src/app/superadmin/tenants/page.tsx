@@ -20,6 +20,14 @@ import {
   Building2,
 } from "lucide-react";
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return fallback;
+}
+
 export default function SuperAdminTenantsPage() {
   const [tenants, setTenants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,9 +66,9 @@ export default function SuperAdminTenantsPage() {
   const fetchTenants = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/superadmin/tenants");
+      const res = await fetch("/api/admin/tenants");
       const data = await res.json();
-      setTenants(data.tenants || []);
+      setTenants(data.tenants || data.data?.tenants || []);
     } catch {
       setTenants([]);
     } finally {
@@ -79,7 +87,7 @@ export default function SuperAdminTenantsPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch("/api/superadmin/tenants", {
+      const res = await fetch("/api/admin/tenants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -93,8 +101,14 @@ export default function SuperAdminTenantsPage() {
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        setFormError(data.error || "Failed to create company");
-        setIsSubmitting(false);
+        setFormError(getApiErrorMessage(data.error, "Failed to create company"));
+        return;
+      }
+
+      const tempPass = data.credentials?.temporaryPassword;
+      if (!tempPass) {
+        setFormError("The company was created, but no temporary password was returned. Please reset the client password before sharing access.");
+        await fetchTenants();
         return;
       }
 
@@ -105,22 +119,15 @@ export default function SuperAdminTenantsPage() {
       setFormAdminName("");
 
       // Open One-Time Credentials Modal
-      const tempPass = data.credentials?.temporaryPassword || data.data?.temporaryPassword || data.temporaryPassword;
-      const clientEmail = data.credentials?.email || data.data?.clientEmail || data.data?.email || data.clientEmail || formAdminEmail;
-      const tenantName = data.tenant?.name || data.data?.tenant?.name || formName;
-      const tenantSlug = data.credentials?.slug || data.tenant?.slug || data.data?.tenant?.slug || formSlug;
-
-      if (tempPass) {
-        const origin = typeof window !== "undefined" ? window.location.origin : "";
-        setOneTimeCredentials({
-          companyName: tenantName,
-          email: clientEmail,
-          temporaryPassword: tempPass,
-          loginUrl: `${origin}/login`,
-          slug: tenantSlug,
-        });
-        setIsCredentialsModalOpen(true);
-      }
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      setOneTimeCredentials({
+        companyName: data.tenant?.name || formName,
+        email: data.credentials?.email || formAdminEmail,
+        temporaryPassword: tempPass,
+        loginUrl: `${origin}${data.credentials?.loginUrl || "/login"}`,
+        slug: data.credentials?.slug || data.tenant?.slug || formSlug,
+      });
+      setIsCredentialsModalOpen(true);
 
       fetchTenants();
     } catch {
@@ -135,12 +142,12 @@ export default function SuperAdminTenantsPage() {
     if (!confirm(`Generate a new random temporary password for ${tenant.name}?`)) return;
 
     try {
-      const res = await fetch(`/api/superadmin/tenants/${tenant.id}/reset-password`, {
+      const res = await fetch(`/api/admin/tenants/${tenant.id}/reset-password`, {
         method: "POST",
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || "Failed to reset password");
+        alert(getApiErrorMessage(data.error, "Failed to reset password"));
         return;
       }
 
@@ -168,18 +175,19 @@ export default function SuperAdminTenantsPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`/api/superadmin/tenants/${selectedTenant.id}`, {
+      const res = await fetch(`/api/admin/tenants/${selectedTenant.id}`, {
         method: "DELETE",
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || "Failed to delete company");
+        alert(getApiErrorMessage(data.error, "Failed to delete company"));
         return;
       }
 
       setIsDeleteModalOpen(false);
       setSelectedTenant(null);
-      fetchTenants();
+      setTenants((current) => current.filter((tenant) => tenant.id !== selectedTenant.id));
+      await fetchTenants();
     } catch {
       alert("Network error deleting company");
     } finally {
@@ -190,7 +198,7 @@ export default function SuperAdminTenantsPage() {
   // 4. Lifecycle Status Changer
   const handleUpdateStatus = async (tenantId: string, status: string) => {
     try {
-      await fetch(`/api/superadmin/tenants/${tenantId}`, {
+      await fetch(`/api/admin/tenants/${tenantId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -226,7 +234,7 @@ export default function SuperAdminTenantsPage() {
     if (!selectedTenant) return;
 
     try {
-      await fetch(`/api/superadmin/tenants/${selectedTenant.id}`, {
+      await fetch(`/api/admin/tenants/${selectedTenant.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

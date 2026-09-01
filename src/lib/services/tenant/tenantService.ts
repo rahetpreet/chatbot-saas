@@ -263,28 +263,20 @@ export class TenantService {
     };
   }
 
-  /** Permanently delete tenant and all associated data from the database. */
+  /**
+   * Permanently delete a tenant and all tenant-owned data.
+   *
+   * Tenant foreign keys are configured with `onDelete: Cascade` in the Prisma
+   * schema. Deleting the root tenant is therefore both complete and resilient
+   * when optional product tables have not yet been created in an older
+   * installation.
+   */
   static async deleteTenant(tenantId: string, _operatorUserId: string, _ipAddress?: string) {
     await prisma.$transaction(async (tx) => {
-      await tx.session.deleteMany({ where: { tenantId } });
-      await tx.message.deleteMany({ where: { conversation: { tenantId } } });
-      await tx.conversation.deleteMany({ where: { tenantId } });
-      await tx.lead.deleteMany({ where: { tenantId } });
-      await tx.campaignContact.deleteMany({ where: { tenantId } });
-      await tx.campaign.deleteMany({ where: { tenantId } });
-      await tx.contact.deleteMany({ where: { tenantId } });
-      await tx.flow.deleteMany({ where: { tenantId } });
-      await tx.attachment.deleteMany({ where: { tenantId } });
-      await tx.analyticsEvent.deleteMany({ where: { tenantId } });
-      await tx.subscription.deleteMany({ where: { tenantId } });
-      await tx.tenantUser.deleteMany({ where: { tenantId } });
-      await tx.user.deleteMany({ where: { tenantId } });
-      await tx.auditLog.deleteMany({ where: { tenantId } });
-      await tx.exportJob.deleteMany({ where: { tenantId } });
-      await tx.usageRecord.deleteMany({ where: { tenantId } });
-      await tx.apiKey.deleteMany({ where: { tenantId } });
-      await tx.webhook.deleteMany({ where: { tenantId } });
-      await tx.tenant.delete({ where: { id: tenantId } });
+      const deleted = await tx.tenant.deleteMany({ where: { id: tenantId } });
+      if (deleted.count === 0) {
+        throw new Error("Tenant not found.");
+      }
     });
     return { success: true, message: "Company workspace permanently deleted from database." };
   }
