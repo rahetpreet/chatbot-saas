@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function GET(req: NextRequest) {
   try {
@@ -43,21 +44,21 @@ export async function GET(req: NextRequest) {
             },
           },
         }),
-        mockStore.leads,
+        null,
         600
       );
     } catch (dbErr) {
-      console.warn("Leads GET DB notice (using mockStore):", dbErr);
-      leads = mockStore.leads;
+      console.warn("Leads GET DB notice:", dbErr);
     }
 
     if (!leads || leads.length === 0) {
-      leads = mockStore.leads;
+      const regLeads = PersistentRegistry.getLeads(effectiveTenantId);
+      leads = regLeads.length > 0 ? regLeads : mockStore.leads;
     }
 
     return NextResponse.json({ leads });
   } catch (error: any) {
-    return NextResponse.json({ leads: mockStore.leads });
+    return NextResponse.json({ leads: PersistentRegistry.getLeads("SUPER_ADMIN") || mockStore.leads });
   }
 }
 

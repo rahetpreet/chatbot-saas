@@ -4,6 +4,7 @@ import { requireTenantAccess } from "@/lib/services/auth/session";
 import { getAIProvider } from "@/lib/services/ai";
 import { FlowNodeData } from "@/types";
 import mockStore from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 interface GeneratedGraph {
   name: string;
@@ -526,6 +527,14 @@ export async function POST(req: NextRequest) {
       };
       mockStore.flows.unshift(newFlow);
       createdFlow = newFlow;
+    }
+
+    try {
+      if (createdFlow) {
+        PersistentRegistry.saveFlow(createdFlow);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry save AI flow error:", e);
     }
 
     return NextResponse.json({

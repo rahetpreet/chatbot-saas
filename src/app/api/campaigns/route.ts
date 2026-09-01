@@ -4,6 +4,7 @@ import { requireTenantAccess } from "@/lib/services/auth/session";
 import { slugify } from "@/lib/utils";
 
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,21 +23,21 @@ export async function GET(req: NextRequest) {
             },
           },
         }),
-        mockStore.campaigns,
+        null,
         600
       );
     } catch (dbErr) {
-      console.warn("Campaigns GET DB notice (using mockStore):", dbErr);
-      campaigns = mockStore.campaigns;
+      console.warn("Campaigns GET DB notice:", dbErr);
     }
 
     if (!campaigns || campaigns.length === 0) {
-      campaigns = mockStore.campaigns;
+      const regCamps = PersistentRegistry.getCampaigns(effectiveTenantId);
+      campaigns = regCamps.length > 0 ? regCamps : mockStore.campaigns;
     }
 
     return NextResponse.json({ campaigns });
   } catch (error: any) {
-    return NextResponse.json({ campaigns: mockStore.campaigns });
+    return NextResponse.json({ campaigns: PersistentRegistry.getCampaigns("SUPER_ADMIN") || mockStore.campaigns });
   }
 }
 
@@ -93,6 +94,14 @@ export async function POST(req: NextRequest) {
       };
       mockStore.campaigns.unshift(newCampaign);
       campaign = newCampaign;
+    }
+
+    try {
+      if (campaign) {
+        PersistentRegistry.saveCampaign(campaign);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry save campaign error:", e);
     }
 
     return NextResponse.json({ success: true, campaign });

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import { PersistentRegistry } from "@/lib/persistentRegistry";
 import { generateTemporaryPassword, hashPassword } from "@/lib/security/password";
 import { slugify } from "@/lib/utils";
 
@@ -204,6 +205,30 @@ export class TenantService {
       }
     }
 
+    // Persist in PersistentRegistry for cross-lambda resilience on Vercel
+    try {
+      PersistentRegistry.addTenant(
+        createdTenant || {
+          id: `t_${finalSlug}`,
+          name: input.name.trim(),
+          slug: finalSlug,
+          status: "ACTIVE",
+          planTier: input.planTier || "STARTER",
+        },
+        createdUser || {
+          id: `u_${finalSlug}_admin`,
+          email: cleanEmail,
+          name: adminName,
+          role: "CLIENT_ADMIN",
+          status: "ACTIVE",
+          tenantId: createdTenant?.id || `t_${finalSlug}`,
+        },
+        passwordHash
+      );
+    } catch (e) {
+      console.warn("PersistentRegistry add tenant notice:", e);
+    }
+
     return {
       success: true,
       tenant: createdTenant,
@@ -269,7 +294,7 @@ export class TenantService {
     }
 
     if (!targetEmail) {
-      const tenant = mockStore.getTenant(tenantId);
+      const tenant = mockStore.getTenant(tenantId) || PersistentRegistry.getTenant(tenantId);
       if (tenant && tenant.users && tenant.users[0]) {
         targetEmail = tenant.users[0].email;
         const mockU = mockStore.findUser(targetEmail);
@@ -279,6 +304,15 @@ export class TenantService {
       } else {
         targetEmail = `admin@${tenant?.slug || "client"}.com`;
       }
+    }
+
+    // Persist new password in PersistentRegistry
+    try {
+      if (targetEmail) {
+        PersistentRegistry.updateUserPassword(targetEmail, passwordHash);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry reset password error:", e);
     }
 
     return {
@@ -315,13 +349,19 @@ export class TenantService {
       console.warn("DB delete tenant notice:", dbErr);
     }
 
-    // Also remove from mockStore
+    // Also remove from mockStore and PersistentRegistry
     mockStore.tenants = mockStore.tenants.filter((t) => t.id !== tenantId);
     mockStore.users = mockStore.users.filter((u) => u.tenantId !== tenantId);
     mockStore.flows = mockStore.flows.filter((f) => f.tenantId !== tenantId);
     mockStore.campaigns = mockStore.campaigns.filter((c) => c.tenantId !== tenantId);
     mockStore.conversations = mockStore.conversations.filter((c) => c.tenantId !== tenantId);
     mockStore.leads = mockStore.leads.filter((l) => l.tenantId !== tenantId);
+
+    try {
+      PersistentRegistry.deleteTenant(tenantId);
+    } catch (e) {
+      console.warn("PersistentRegistry delete tenant error:", e);
+    }
 
     return { success: true, message: "Company workspace deleted successfully" };
   }

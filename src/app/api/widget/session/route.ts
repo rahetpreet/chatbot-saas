@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 
 import mockStore from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!tenant) {
-      tenant = mockStore.getTenant(tenantSlug) || mockStore.tenants[0];
+      tenant = PersistentRegistry.getTenant(tenantSlug) || mockStore.getTenant(tenantSlug) || mockStore.tenants[0];
     }
 
     // Check if campaign link was used
@@ -93,7 +94,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (!flow) {
-      flow = mockStore.getFlow(targetFlowId || "flow_starter_default", tenant.id) || mockStore.flows[0];
+      flow =
+        PersistentRegistry.getFlow(targetFlowId, tenant.id) ||
+        mockStore.getFlow(targetFlowId || "flow_starter_default", tenant.id) ||
+        PersistentRegistry.getFlows(tenant.id)[0] ||
+        mockStore.flows[0];
     }
 
     // Check for existing active conversation for this visitor

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
 import mockStore from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (!flow) {
-      flow = mockStore.getFlow(id, effectiveTenantId);
+      flow = PersistentRegistry.getFlow(id, effectiveTenantId) || mockStore.getFlow(id, effectiveTenantId);
     }
 
     if (!flow) {
@@ -59,6 +60,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       flow.publishedEdges = flow.edges;
       flow.updatedAt = new Date().toISOString();
       updated = flow;
+    }
+
+    try {
+      if (updated) {
+        PersistentRegistry.saveFlow(updated);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry publish flow error:", e);
     }
 
     return NextResponse.json({

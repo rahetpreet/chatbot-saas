@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 import { TenantService } from "@/lib/services/tenant/tenantService";
 
 export async function GET(req: NextRequest) {
@@ -28,16 +29,16 @@ export async function GET(req: NextRequest) {
             },
           },
         }),
-        mockStore.tenants,
+        null,
         600
       );
     } catch (dbErr) {
-      console.warn("Tenants DB query notice (using mockStore):", dbErr);
-      tenants = mockStore.tenants;
+      console.warn("Tenants DB query notice:", dbErr);
     }
 
     if (!tenants || tenants.length === 0) {
-      tenants = mockStore.tenants;
+      const regTenants = PersistentRegistry.getTenants();
+      tenants = regTenants.length > 0 ? regTenants : mockStore.tenants;
     }
 
     return NextResponse.json({ tenants });

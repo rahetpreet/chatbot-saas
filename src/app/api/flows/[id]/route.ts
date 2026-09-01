@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
 import mockStore from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     if (!flow) {
-      flow = mockStore.getFlow(id, effectiveTenantId);
+      flow = PersistentRegistry.getFlow(id, effectiveTenantId) || mockStore.getFlow(id, effectiveTenantId);
     }
 
     if (!flow) {
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ flow });
   } catch (error: any) {
     const { id } = await params;
-    const fallbackFlow = mockStore.getFlow(id);
+    const fallbackFlow = PersistentRegistry.getFlow(id) || mockStore.getFlow(id);
     if (fallbackFlow) return NextResponse.json({ flow: fallbackFlow });
     return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 403 });
   }
@@ -76,13 +77,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       });
     } catch (dbErr) {
       console.warn("Single flow PATCH DB notice (using mockStore):", dbErr);
-      const existing = mockStore.getFlow(id);
+      const existing = PersistentRegistry.getFlow(id) || mockStore.getFlow(id);
       if (existing) {
         Object.assign(existing, updateData);
         updated = existing;
       } else {
-        updated = { id, ...updateData };
+        updated = { id, tenantId: effectiveTenantId, ...updateData };
       }
+    }
+
+    try {
+      if (updated) {
+        PersistentRegistry.saveFlow(updated);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry patch flow error:", e);
     }
 
     return NextResponse.json({ success: true, flow: updated });
@@ -102,6 +111,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       });
     } catch (dbErr) {
       mockStore.flows = mockStore.flows.filter((f) => f.id !== id);
+    }
+
+    try {
+      PersistentRegistry.deleteFlow(id);
+    } catch (e) {
+      console.warn("PersistentRegistry delete flow error:", e);
     }
 
     return NextResponse.json({ success: true, message: "Flow deleted" });

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 
 import mockStore from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function POST(req: NextRequest) {
   try {
@@ -91,7 +92,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse flow nodes and edges
-    const flow = conversation.flow;
+    let flow = conversation.flow;
+    if (!flow || (!flow.publishedNodes && !flow.nodes)) {
+      flow =
+        PersistentRegistry.getFlow(conversation.flowId, conversation.tenantId) ||
+        mockStore.getFlow(conversation.flowId, conversation.tenantId) ||
+        PersistentRegistry.getFlows(conversation.tenantId)[0] ||
+        mockStore.flows[0];
+    }
     const parsedNodes = flow ? JSON.parse(flow.publishedNodes || flow.nodes || "[]") : [];
     const parsedEdges = flow ? JSON.parse(flow.publishedEdges || flow.edges || "[]") : [];
 

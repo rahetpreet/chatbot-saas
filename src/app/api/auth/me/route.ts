@@ -2,9 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/services/auth/session";
 import prisma from "@/lib/prisma";
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 function resolveTenantData(tenantId: string | null | undefined, email: string) {
   if (!tenantId) return null;
+  const regTenant = PersistentRegistry.getTenant(tenantId);
+  if (regTenant) {
+    return {
+      id: regTenant.id,
+      name: regTenant.name,
+      slug: regTenant.slug,
+      status: regTenant.status || "ACTIVE",
+      planTier: regTenant.planTier || "PRO",
+      maxMessagesPerMonth: regTenant.maxMessagesPerMonth || 25000,
+      maxFlows: regTenant.maxFlows || 15,
+      maxCampaignLinks: regTenant.maxCampaignLinks || 200,
+      maxStorageMb: regTenant.maxStorageMb || 500,
+      widgetSettings: regTenant.widgetSettings,
+      aiConfig: regTenant.aiConfig,
+    };
+  }
+
   const mockTenant = mockStore.getTenant(tenantId);
   if (mockTenant) {
     return {

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
 import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import PersistentRegistry from "@/lib/persistentRegistry";
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,22 +25,23 @@ export async function GET(req: NextRequest) {
             },
           },
         }),
-        mockStore.getFlows(effectiveTenantId),
+        null,
         600
       );
     } catch (dbErr) {
-      console.warn("Flows GET DB notice (using mockStore):", dbErr);
-      flows = mockStore.getFlows(effectiveTenantId);
+      console.warn("Flows GET DB notice:", dbErr);
     }
 
     if (!flows || flows.length === 0) {
-      flows = mockStore.getFlows(effectiveTenantId);
+      const regFlows = PersistentRegistry.getFlows(effectiveTenantId);
+      flows = regFlows.length > 0 ? regFlows : mockStore.getFlows(effectiveTenantId);
     }
 
     return NextResponse.json({ flows });
   } catch (error: any) {
     console.warn("Flows GET fallback:", error?.message);
-    return NextResponse.json({ flows: mockStore.flows });
+    const regFlows = PersistentRegistry.getFlows("SUPER_ADMIN");
+    return NextResponse.json({ flows: regFlows.length > 0 ? regFlows : mockStore.flows });
   }
 }
 
@@ -119,6 +121,14 @@ export async function POST(req: NextRequest) {
       };
       mockStore.flows.unshift(newFlow);
       flow = newFlow;
+    }
+
+    try {
+      if (flow) {
+        PersistentRegistry.saveFlow(flow);
+      }
+    } catch (e) {
+      console.warn("PersistentRegistry save flow notice:", e);
     }
 
     return NextResponse.json({ success: true, flow });
