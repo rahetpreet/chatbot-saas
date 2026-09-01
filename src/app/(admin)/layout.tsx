@@ -17,7 +17,12 @@ export default function ClientAdminLayout({ children }: { children: React.ReactN
         return res.json();
       })
       .then((data) => {
-        setSessionData(data);
+        const user = data.user || data.data?.user;
+        setSessionData({
+          ...data,
+          user,
+          impersonating: data.impersonating ?? data.data?.impersonating,
+        });
       })
       .catch(() => {
         router.push("/login");

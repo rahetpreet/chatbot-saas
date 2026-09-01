@@ -17,11 +17,12 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         return res.json();
       })
       .then((data) => {
-        if (data.user?.role !== "SUPER_ADMIN") {
+        const user = data.user || data.data?.user;
+        if (!user || user.role !== "SUPER_ADMIN") {
           router.push("/dashboard");
           return;
         }
-        setUser(data.user);
+        setUser(user);
       })
       .catch(() => {
         router.push("/login");

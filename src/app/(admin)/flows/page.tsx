@@ -60,8 +60,9 @@ export default function FlowsListingPage() {
       try {
         const res = await fetch("/api/auth/me");
         const data = await res.json();
-        if (data.user?.tenant?.slug) {
-          setTenantSlug(data.user.tenant.slug);
+        const user = data.user || data.data?.user;
+        if (user?.tenant?.slug) {
+          setTenantSlug(user.tenant.slug);
         }
       } catch {}
     };

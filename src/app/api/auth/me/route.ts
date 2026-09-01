@@ -7,5 +7,10 @@ export async function GET() {
   if (!session) return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required." } }, { status: 401 });
   const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { id: true, name: true, email: true, role: true, tenantId: true, mustChangePassword: true, tenant: { select: { id: true, name: true, slug: true, status: true, planTier: true } } } });
   if (!user) return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required." } }, { status: 401 });
-  return NextResponse.json({ success: true, data: { user, impersonating: Boolean(session.impersonatingFrom) } });
+  return NextResponse.json({
+    success: true,
+    user,
+    impersonating: Boolean(session.impersonatingFrom),
+    data: { user, impersonating: Boolean(session.impersonatingFrom) },
+  });
 }
