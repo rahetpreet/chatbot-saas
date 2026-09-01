@@ -37,6 +37,10 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     );
   }
 
+  if (!user || user.role !== "SUPER_ADMIN") {
+    return null;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
       <Sidebar role="SUPER_ADMIN" />

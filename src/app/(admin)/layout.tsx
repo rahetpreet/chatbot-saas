@@ -34,6 +34,9 @@ export default function ClientAdminLayout({ children }: { children: React.ReactN
   }
 
   const user = sessionData?.user;
+  if (!user) {
+    return null;
+  }
   const tenant = user?.tenant;
 
   return (

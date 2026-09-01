@@ -43,11 +43,11 @@ export function Navbar({ user, tenantSlug }: NavbarProps) {
         {user && (
           <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs border border-indigo-200">
-              {user.name.charAt(0).toUpperCase()}
+              {(user.name || user.email || "U").charAt(0).toUpperCase()}
             </div>
             <div className="text-left hidden sm:block">
-              <span className="block text-xs font-bold text-slate-800 leading-tight">{user.name}</span>
-              <span className="block text-[11px] text-slate-500 leading-tight">{user.email}</span>
+              <span className="block text-xs font-bold text-slate-800 leading-tight">{user.name || "User"}</span>
+              <span className="block text-[11px] text-slate-500 leading-tight">{user.email || ""}</span>
             </div>
           </div>
         )}

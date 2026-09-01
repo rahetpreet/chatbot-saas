@@ -257,10 +257,10 @@ export default function SuperAdminTenantsPage() {
     setIsDeleteModalOpen(true);
   };
 
-  const filteredTenants = tenants.filter(
+  const filteredTenants = (tenants || []).filter(
     (t) =>
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.slug.toLowerCase().includes(search.toLowerCase())
+      (t?.name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (t?.slug || "").toLowerCase().includes(search.toLowerCase())
   );
 
   return (
