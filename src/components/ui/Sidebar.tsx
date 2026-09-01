@@ -70,6 +70,7 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
     { label: "Companies & Tenants", href: "/superadmin/tenants", icon: Building2 },
     { label: "Resource Quotas", href: "/superadmin/quotas", icon: Sliders },
     { label: "System Audit Logs", href: "/superadmin/audit-logs", icon: FileText },
+    { label: "Security & Password", href: "/superadmin/settings", icon: ShieldAlert },
   ];
 
   const isSuperAdminPortal = pathname.startsWith("/superadmin");
