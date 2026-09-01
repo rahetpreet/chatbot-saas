@@ -105,14 +105,19 @@ export default function SuperAdminTenantsPage() {
       setFormAdminName("");
 
       // Open One-Time Credentials Modal
-      if (data.credentials) {
+      const tempPass = data.credentials?.temporaryPassword || data.data?.temporaryPassword || data.temporaryPassword;
+      const clientEmail = data.credentials?.email || data.data?.clientEmail || data.data?.email || data.clientEmail || formAdminEmail;
+      const tenantName = data.tenant?.name || data.data?.tenant?.name || formName;
+      const tenantSlug = data.credentials?.slug || data.tenant?.slug || data.data?.tenant?.slug || formSlug;
+
+      if (tempPass) {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         setOneTimeCredentials({
-          companyName: data.tenant?.name || formName,
-          email: data.credentials.email,
-          temporaryPassword: data.credentials.temporaryPassword,
+          companyName: tenantName,
+          email: clientEmail,
+          temporaryPassword: tempPass,
           loginUrl: `${origin}/login`,
-          slug: data.credentials.slug,
+          slug: tenantSlug,
         });
         setIsCredentialsModalOpen(true);
       }
@@ -139,15 +144,19 @@ export default function SuperAdminTenantsPage() {
         return;
       }
 
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      setOneTimeCredentials({
-        companyName: tenant.name,
-        email: data.credentials?.email || tenant.users?.[0]?.email,
-        temporaryPassword: data.credentials?.temporaryPassword,
-        loginUrl: `${origin}/login`,
-        slug: tenant.slug,
-      });
-      setIsCredentialsModalOpen(true);
+      const tempPass = data.credentials?.temporaryPassword || data.data?.temporaryPassword || data.temporaryPassword;
+      const clientEmail = data.credentials?.email || data.data?.email || data.email || tenant.users?.[0]?.email;
+      if (tempPass) {
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        setOneTimeCredentials({
+          companyName: tenant.name,
+          email: clientEmail,
+          temporaryPassword: tempPass,
+          loginUrl: `${origin}/login`,
+          slug: tenant.slug,
+        });
+        setIsCredentialsModalOpen(true);
+      }
     } catch {
       alert("Failed to reset password");
     }
