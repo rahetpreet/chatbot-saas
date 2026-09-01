@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
-import mockStore, { withDbTimeout } from "@/lib/mockStore";
-import PersistentRegistry from "@/lib/persistentRegistry";
 import { TenantService } from "@/lib/services/tenant/tenantService";
 
 export async function GET(req: NextRequest) {
   try {
     await requireSuperAdmin();
 
-    let tenants: any[] = [];
-    try {
-      tenants = await withDbTimeout<any>(
-        prisma.tenant.findMany({
+    const tenants = await prisma.tenant.findMany({
           orderBy: { createdAt: "desc" },
           include: {
             _count: {
@@ -28,18 +23,7 @@ export async function GET(req: NextRequest) {
               select: { id: true, email: true, name: true, role: true, status: true },
             },
           },
-        }),
-        null,
-        600
-      );
-    } catch (dbErr) {
-      console.warn("Tenants DB query notice:", dbErr);
-    }
-
-    if (!tenants || tenants.length === 0) {
-      const regTenants = PersistentRegistry.getTenants();
-      tenants = regTenants.length > 0 ? regTenants : mockStore.tenants;
-    }
+        });
 
     return NextResponse.json({ tenants });
   } catch (error: any) {

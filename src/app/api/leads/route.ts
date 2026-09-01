@@ -1,89 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireTenantAccess } from "@/lib/services/auth/session";
-
-import mockStore, { withDbTimeout } from "@/lib/mockStore";
-import PersistentRegistry from "@/lib/persistentRegistry";
+import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
-    const search = searchParams.get("search");
-
-    const where: Record<string, any> = { tenantId: effectiveTenantId };
-
-    if (status && status !== "ALL") {
-      where.status = status;
-    }
-
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    let leads: any[] = [];
-    try {
-      leads = await withDbTimeout<any>(
-        prisma.lead.findMany({
-          where,
-          orderBy: { createdAt: "desc" },
-          include: {
-            conversation: {
-              select: {
-                id: true,
-                sessionStatus: true,
-                startedAt: true,
-                flow: { select: { name: true } },
-              },
-            },
-          },
-        }),
-        null,
-        600
-      );
-    } catch (dbErr) {
-      console.warn("Leads GET DB notice:", dbErr);
-    }
-
-    if (!leads || leads.length === 0) {
-      const regLeads = PersistentRegistry.getLeads(effectiveTenantId);
-      leads = regLeads.length > 0 ? regLeads : mockStore.leads;
-    }
-
+    const search = searchParams.get("search")?.slice(0, 160);
+    const where: Record<string, unknown> = { tenantId, deletedAt: null };
+    if (status && status !== "ALL") where.status = status;
+    if (search) where.OR = [{ name: { contains: search, mode: "insensitive" } }, { email: { contains: search, mode: "insensitive" } }, { phone: { contains: search, mode: "insensitive" } }];
+    const leads = await prisma.lead.findMany({ where, orderBy: { createdAt: "desc" }, include: { conversation: { select: { id: true, sessionStatus: true, startedAt: true, flow: { select: { name: true } } } } } });
     return NextResponse.json({ leads });
   } catch (error: any) {
-    return NextResponse.json({ leads: PersistentRegistry.getLeads("SUPER_ADMIN") || mockStore.leads });
+    return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 403 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantAccess();
-    const body = await req.json();
-    const { id, status, score, contactInfo, collectedFields } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: "Lead ID is required" }, { status: 400 });
-    }
-
-    const updateData: Record<string, any> = {};
-    if (status !== undefined) updateData.status = status;
-    if (score !== undefined) updateData.score = Number(score);
-    if (contactInfo !== undefined) updateData.contactInfo = typeof contactInfo === "string" ? contactInfo : JSON.stringify(contactInfo);
-    if (collectedFields !== undefined) updateData.collectedFields = typeof collectedFields === "string" ? collectedFields : JSON.stringify(collectedFields);
-
-    const updated = await prisma.lead.updateMany({
-      where: { id, tenantId },
-      data: updateData,
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT"]);
+    const { id, status, score, contactInfo, collectedFields } = await req.json();
+    if (typeof id !== "string") return NextResponse.json({ error: "Lead ID is required" }, { status: 400 });
+    const data: Record<string, unknown> = {};
+    if (typeof status === "string") data.status = status;
+    if (score !== undefined && Number.isFinite(Number(score))) data.score = Number(score);
+    if (contactInfo !== undefined) data.contactInfo = typeof contactInfo === "string" ? contactInfo : JSON.stringify(contactInfo);
+    if (collectedFields !== undefined) data.collectedFields = typeof collectedFields === "string" ? collectedFields : JSON.stringify(collectedFields);
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.lead.updateMany({ where: { id, tenantId, deletedAt: null }, data });
+      if (updated.count) await tx.auditLog.create({ data: { tenantId, userId: session.userId, action: "LEAD_UPDATED", details: JSON.stringify({ leadId: id }) } });
+      return updated;
     });
-
-    return NextResponse.json({ success: true, count: updated.count });
+    if (!result.count) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    return NextResponse.json({ success: true, count: result.count });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Update failed" }, { status: 400 });
   }
@@ -91,19 +42,16 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantAccess();
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json({ error: "Lead ID is required" }, { status: 400 });
-    }
-
-    await prisma.lead.deleteMany({
-      where: { id, tenantId },
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
+    const id = new URL(req.url).searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "Lead ID is required" }, { status: 400 });
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.lead.updateMany({ where: { id, tenantId, deletedAt: null }, data: { deletedAt: new Date() } });
+      if (updated.count) await tx.auditLog.create({ data: { tenantId, userId: session.userId, action: "LEAD_ARCHIVED", details: JSON.stringify({ leadId: id }) } });
+      return updated;
     });
-
-    return NextResponse.json({ success: true, message: "Lead deleted" });
+    if (!result.count) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    return NextResponse.json({ success: true, message: "Lead archived" });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Delete failed" }, { status: 400 });
   }

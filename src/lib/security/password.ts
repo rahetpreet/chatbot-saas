@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
-const BCRYPT_ROUNDS = 10;
+const BCRYPT_ROUNDS = 12;
 
 /**
  * Generates a cryptographically secure, high-entropy temporary password.
@@ -87,6 +87,9 @@ export function validatePasswordStrength(password: string): { valid: boolean; er
   }
   if (!/[0-9]/.test(password)) {
     errors.push("Password must contain at least one number.");
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    errors.push("Password must contain at least one special character.");
   }
 
   return {

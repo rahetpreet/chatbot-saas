@@ -1,70 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
-import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     await requireSuperAdmin();
 
-    let totalTenants = 0,
-      activeTenants = 0,
-      totalUsers = 0,
-      totalFlows = 0,
-      totalConversations = 0,
-      totalMessages = 0,
-      totalLeads = 0,
-      recentAuditLogs: any[] = [];
-
-    try {
-      const dbStats = await withDbTimeout(
-        Promise.all([
-          prisma.tenant.count(),
-          prisma.tenant.count({ where: { status: "ACTIVE" } }),
-          prisma.user.count(),
-          prisma.flow.count(),
-          prisma.conversation.count(),
-          prisma.message.count(),
-          prisma.lead.count(),
-          prisma.auditLog.findMany({
-            take: 10,
-            orderBy: { timestamp: "desc" },
-            include: {
-              tenant: { select: { name: true, slug: true } },
-              user: { select: { email: true, name: true } },
-            },
-          }),
-        ]),
-        null,
-        600
-      );
-
-      if (dbStats) {
-        [
-          totalTenants,
-          activeTenants,
-          totalUsers,
-          totalFlows,
-          totalConversations,
-          totalMessages,
-          totalLeads,
-          recentAuditLogs,
-        ] = dbStats;
-      } else {
-        totalTenants = mockStore.tenants.length;
-        activeTenants = mockStore.tenants.filter((t) => t.status === "ACTIVE").length;
-        totalUsers = mockStore.users.length;
-        totalFlows = mockStore.flows.length;
-        totalConversations = mockStore.conversations.length;
-        totalMessages = mockStore.conversations.reduce((acc, c) => acc + (c.messages?.length || 0), 0);
-        totalLeads = mockStore.leads.length;
-        recentAuditLogs = mockStore.auditLogs;
-      }
-    } catch (dbErr) {
-      console.warn("DB stats fallback notice:", dbErr);
-    }
+    const [
+      totalTenants,
+      activeTenants,
+      totalUsers,
+      totalFlows,
+      totalConversations,
+      totalMessages,
+      totalLeads,
+      recentAuditLogs,
+    ] = await Promise.all([
+      prisma.tenant.count({ where: { deletedAt: null } }),
+      prisma.tenant.count({ where: { status: "ACTIVE", deletedAt: null } }),
+      prisma.user.count({ where: { deletedAt: null } }),
+      prisma.flow.count({ where: { deletedAt: null } }),
+      prisma.conversation.count(),
+      prisma.message.count(),
+      prisma.lead.count({ where: { deletedAt: null } }),
+      prisma.auditLog.findMany({
+        take: 10,
+        orderBy: { timestamp: "desc" },
+        include: {
+          tenant: { select: { name: true, slug: true } },
+          user: { select: { email: true, name: true } },
+        },
+      }),
+    ]);
 
     return NextResponse.json({
+      success: true,
       metrics: {
         totalTenants,
         activeTenants,
@@ -78,6 +48,6 @@ export async function GET(req: NextRequest) {
       recentAuditLogs,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 403 });
+    return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: error.message || "Super Admin access required." } }, { status: 403 });
   }
 }

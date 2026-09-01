@@ -3,26 +3,14 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { SMTPProvider } from "@/lib/services/email";
 
-import mockStore from "@/lib/mockStore";
-
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
+    const { tenantId } = await requireTenantAccess();
 
-    let tenant: any = null;
-    try {
-      tenant = await prisma.tenant.findUnique({
-        where: { id: effectiveTenantId },
-        select: { customSmtpConfig: true },
-      });
-    } catch (dbErr) {
-      console.warn("SMTP GET DB notice:", dbErr);
-    }
-
-    if (!tenant) {
-      tenant = mockStore.getTenant(effectiveTenantId);
-    }
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { customSmtpConfig: true },
+    });
 
     let config = {
       host: "",
@@ -40,23 +28,22 @@ export async function GET(req: NextRequest) {
       } catch {}
     }
 
-    return NextResponse.json({ config });
+    return NextResponse.json({ success: true, config });
   } catch (error: any) {
-    return NextResponse.json({ config: { host: "", port: 587, user: "", pass: "", secure: false, from: "" } });
+    return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: error.message || "Failed to load SMTP settings" } }, { status: 401 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
     const body = await req.json();
     const { host, port, user, pass, secure, from, testEmail } = body;
 
     // If testing connection
     if (testEmail) {
       if (!host || !user || !pass) {
-        return NextResponse.json({ error: "Host, user, and password are required to test SMTP" }, { status: 400 });
+        return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Host, user, and password are required to test SMTP" } }, { status: 400 });
       }
 
       const smtpProvider = new SMTPProvider({
@@ -79,50 +66,42 @@ export async function POST(req: NextRequest) {
 
     let finalPass = pass;
     if (pass === "********") {
-      try {
-        const existing = await prisma.tenant.findUnique({ where: { id: effectiveTenantId } });
-        if (existing?.customSmtpConfig) {
+      const existing = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { customSmtpConfig: true } });
+      if (existing?.customSmtpConfig) {
+        try {
           finalPass = JSON.parse(existing.customSmtpConfig).pass;
-        }
-      } catch {}
+        } catch {}
+      }
     }
 
     const configToSave = {
-      host,
+      host: host || "",
       port: Number(port) || 587,
-      user,
-      pass: finalPass,
+      user: user || "",
+      pass: finalPass || "",
       secure: Boolean(secure),
-      from: from || user,
+      from: from || user || "",
     };
 
     const serialized = JSON.stringify(configToSave);
 
-    try {
-      await prisma.tenant.update({
-        where: { id: effectiveTenantId },
+    await prisma.$transaction([
+      prisma.tenant.update({
+        where: { id: tenantId },
         data: { customSmtpConfig: serialized },
-      });
-
-      await prisma.auditLog.create({
+      }),
+      prisma.auditLog.create({
         data: {
-          tenantId: effectiveTenantId,
+          tenantId,
           userId: session.userId,
           action: "SMTP_CONFIG_SAVED",
           details: JSON.stringify({ host, port, user, from }),
         },
-      });
-    } catch (dbErr) {
-      console.warn("SMTP POST DB notice (using mockStore):", dbErr);
-      const existing = mockStore.getTenant(effectiveTenantId);
-      if (existing) {
-        existing.customSmtpConfig = serialized;
-      }
-    }
+      }),
+    ]);
 
     return NextResponse.json({ success: true, message: "SMTP configuration saved." });
   } catch (error: any) {
-    console.error("SMTP save/test error:", error);
-    return NextResponse.json({ error: error.message || "Failed to configure SMTP" }, { status: 500 });
+    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to configure SMTP" } }, { status: 500 });
   }
 }

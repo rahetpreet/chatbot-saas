@@ -1,6 +1,6 @@
-export type UserRole = "SUPER_ADMIN" | "CLIENT_ADMIN" | "AGENT";
+export type UserRole = "SUPER_ADMIN" | "CLIENT_OWNER" | "CLIENT_ADMIN" | "CLIENT_AGENT" | "CLIENT_VIEWER";
 
-export type TenantStatus = "ACTIVE" | "PAUSED" | "SUSPENDED" | "TERMINATED";
+export type TenantStatus = "TRIAL" | "ACTIVE" | "PAUSED" | "EXPIRED" | "CANCELLED";
 
 export type FlowStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
@@ -117,4 +117,5 @@ export interface JWTPayload {
   role: UserRole;
   tenantId: string | null;
   impersonatingFrom?: string; // Super Admin ID if impersonating
+  sessionId?: string;
 }

@@ -93,7 +93,7 @@ export default function SuperAdminSettingsPage() {
               required
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter current master password (e.g. AdminSuper2026!#)"
+              placeholder="Enter your current password"
             />
 
             <Input

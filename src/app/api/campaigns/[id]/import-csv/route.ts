@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireTenantAccess } from "@/lib/services/auth/session";
+import { requireTenantRole } from "@/lib/services/auth/session";
 import Papa from "papaparse";
 import { slugify, generateRandomId } from "@/lib/utils";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { tenantId } = await requireTenantAccess();
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const { id: campaignId } = await params;
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let textToParse = "";
 
     if (file) {
+      if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: "CSV file exceeds the 5 MB limit" }, { status: 400 });
       const buffer = await file.arrayBuffer();
       textToParse = Buffer.from(buffer).toString("utf-8");
     } else if (csvContent) {
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const rows = parsed.data as Array<Record<string, string>>;
+    if (rows.length > 2_000) return NextResponse.json({ error: "CSV import is limited to 2,000 rows" }, { status: 400 });
     const createdContacts = [];
 
     for (let i = 0; i < rows.length; i++) {
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       createdContacts.push(contact);
     }
 
+    await prisma.auditLog.create({ data: { tenantId, userId: session.userId, action: "CONTACT_IMPORTED", details: JSON.stringify({ campaignId, imported: createdContacts.length }) } });
     return NextResponse.json({
       success: true,
       count: createdContacts.length,

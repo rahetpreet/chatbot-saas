@@ -13,6 +13,7 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
 
   const [widgetConfig, setWidgetConfig] = useState<any>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<string>("ACTIVE");
   const [messages, setMessages] = useState<any[]>([]);
   const [interactiveNode, setInteractiveNode] = useState<any | null>(null);
@@ -70,6 +71,7 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
       const sessionData = await sessionRes.json();
       if (sessionData.success) {
         setConversationId(sessionData.conversationId);
+        setSessionToken(sessionData.sessionToken);
         setSessionStatus(sessionData.sessionStatus);
         setMessages(sessionData.messages || []);
         setInteractiveNode(sessionData.interactiveNode);
@@ -87,7 +89,7 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
     label?: string;
     buttonId?: string;
   }) => {
-    if (!conversationId || loading) return;
+    if (!conversationId || !sessionToken || loading) return;
 
     const userDisplayText = inputObj.label || (typeof inputObj.value === "string" ? inputObj.value : "Submitted file");
 
@@ -111,6 +113,7 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId,
+          sessionToken,
           userInput: inputObj,
         }),
       });
@@ -136,12 +139,13 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !conversationId) return;
+    if (!file || !conversationId || !sessionToken) return;
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("tenantSlug", tenantSlug);
     formData.append("conversationId", conversationId);
+    formData.append("sessionToken", sessionToken);
 
     setLoading(true);
     try {

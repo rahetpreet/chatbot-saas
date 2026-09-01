@@ -1,223 +1,136 @@
+import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
+import { checkRateLimit } from "@/lib/security/rateLimit";
 
-import mockStore from "@/lib/mockStore";
-import PersistentRegistry from "@/lib/persistentRegistry";
+const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (!checkRateLimit(`public-session:${ip}`, 30, 60_000)) {
+    return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } }, { status: 429 });
+  }
+
   try {
     const body = await req.json();
-    const {
-      tenantSlug,
-      visitorId,
-      campaignSlug,
-      contactSlug,
-      referrer,
-      device,
-      flowId: customFlowId,
-    } = body;
+    const tenantSlug = typeof body.tenantSlug === "string" ? body.tenantSlug : "";
+    const visitorId = typeof body.visitorId === "string" ? body.visitorId.slice(0, 128) : "";
+    const contactSlug = typeof body.contactSlug === "string" ? body.contactSlug : undefined;
+    const flowId = typeof body.flowId === "string" ? body.flowId : undefined;
 
     if (!tenantSlug || !visitorId) {
-      return NextResponse.json({ error: "Tenant and visitorId are required" }, { status: 400 });
+      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid tenant and visitor identifiers are required." } }, { status: 400 });
     }
 
-    let tenant: any = null;
-    try {
-      tenant = await prisma.tenant.findFirst({
-        where: { OR: [{ slug: tenantSlug }, { id: tenantSlug }] },
-        select: { id: true, name: true, slug: true, status: true, aiConfig: true },
-      });
-    } catch (dbErr) {
-      console.warn("Widget session tenant DB notice:", dbErr);
-    }
-
-    if (!tenant) {
-      tenant = PersistentRegistry.getTenant(tenantSlug) || mockStore.getTenant(tenantSlug) || mockStore.tenants[0];
-    }
-
-    // Check if campaign link was used
-    let campaignContact = null;
-    if (contactSlug) {
-      try {
-        campaignContact = await prisma.campaignContact.findUnique({
-          where: { customUrlSlug: contactSlug },
-          include: { campaign: true },
-        });
-
-        if (campaignContact) {
-          // Track open
-          await prisma.campaignContact.update({
-            where: { id: campaignContact.id },
-            data: {
-              opensCount: { increment: 1 },
-              lastOpenedAt: new Date(),
-              firstOpenedAt: campaignContact.firstOpenedAt || new Date(),
-              status: "OPENED",
-            },
-          });
-
-          await prisma.campaign.update({
-            where: { id: campaignContact.campaignId },
-            data: { opensCount: { increment: 1 } },
-          });
-        }
-      } catch (cntErr) {
-        console.warn("Widget campaign contact notice:", cntErr);
-      }
-    }
-
-    // Determine target flow: custom flowId > campaign flowId > tenant default published flow
-    let targetFlowId = customFlowId || campaignContact?.campaign?.flowId;
-    let flow: any = null;
-
-    try {
-      if (targetFlowId) {
-        flow = await prisma.flow.findFirst({
-          where: { id: targetFlowId, tenantId: tenant.id, status: "PUBLISHED" },
-        });
-      }
-
-      if (!flow) {
-        flow = await prisma.flow.findFirst({
-          where: { tenantId: tenant.id, status: "PUBLISHED", isDefault: true },
-        });
-      }
-
-      if (!flow) {
-        flow = await prisma.flow.findFirst({
-          where: { tenantId: tenant.id, status: "PUBLISHED" },
-        });
-      }
-    } catch (flowErr) {
-      console.warn("Widget flow lookup notice:", flowErr);
-    }
-
-    if (!flow) {
-      flow =
-        PersistentRegistry.getFlow(targetFlowId, tenant.id) ||
-        mockStore.getFlow(targetFlowId || "flow_starter_default", tenant.id) ||
-        PersistentRegistry.getFlows(tenant.id)[0] ||
-        mockStore.flows[0];
-    }
-
-    // Check for existing active conversation for this visitor
-    let conversation = await prisma.conversation.findFirst({
-      where: {
-        tenantId: tenant.id,
-        visitorId,
-        flowId: flow.id,
-        sessionStatus: { in: ["ACTIVE", "HANDOVER"] },
-      },
-      include: {
-        messages: { orderBy: { timestamp: "asc" } },
+    const tenant = await prisma.tenant.findFirst({
+      where: { slug: tenantSlug, status: { in: ["TRIAL", "ACTIVE"] }, deletedAt: null },
+      select: {
+        id: true,
+        aiConfig: true,
+        flows: {
+          where: flowId
+            ? { id: flowId, status: "PUBLISHED", deletedAt: null }
+            : { status: "PUBLISHED", isDefault: true, deletedAt: null },
+          take: 1,
+        },
       },
     });
 
-    let isNewSession = false;
-    let stepOutput = null;
+    const flow = tenant?.flows[0];
+    if (!tenant || !flow) {
+      return NextResponse.json({ success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is unavailable." } }, { status: 404 });
+    }
 
-    const parsedNodes = JSON.parse(flow.publishedNodes || flow.nodes || "[]");
-    const parsedEdges = JSON.parse(flow.publishedEdges || flow.edges || "[]");
-    const engine = new FlowEngine(parsedNodes, parsedEdges, tenant.id, tenant.aiConfig);
+    let campaignContactId: string | null = null;
 
-    if (!conversation) {
-      isNewSession = true;
-
-      // Start initial flow execution
-      const initialCollectedData: Record<string, any> = {};
+    if (contactSlug) {
+      const campaignContact = await prisma.campaignContact.findFirst({
+        where: { customUrlSlug: contactSlug, tenantId: tenant.id, deletedAt: null },
+      });
       if (campaignContact) {
-        if (campaignContact.name) initialCollectedData.name = campaignContact.name;
-        if (campaignContact.email) initialCollectedData.email = campaignContact.email;
-        if (campaignContact.phone) initialCollectedData.phone = campaignContact.phone;
-      }
-
-      stepOutput = await engine.processInput({
-        tenantId: tenant.id,
-        currentNodeId: null,
-        collectedData: initialCollectedData,
-        sessionStatus: "ACTIVE",
-        history: [],
-      });
-
-      const ip = req.headers.get("x-forwarded-for") || "127.0.0.1";
-      const userAgent = req.headers.get("user-agent") || "";
-
-      conversation = await prisma.conversation.create({
-        data: {
-          tenantId: tenant.id,
-          flowId: flow.id,
-          campaignContactId: campaignContact?.id || null,
-          visitorId,
-          sessionStatus: stepOutput.sessionStatus,
-          currentNodeId: stepOutput.currentNodeId,
-          collectedData: JSON.stringify(stepOutput.updatedCollectedData),
-          visitorInfo: JSON.stringify({ ip, userAgent, referrer, device }),
-        },
-        include: { messages: true },
-      });
-
-      // Save initial bot messages
-      for (const msg of stepOutput.botMessages) {
-        await prisma.message.create({
+        campaignContactId = campaignContact.id;
+        await prisma.campaignContact.update({
+          where: { id: campaignContact.id },
           data: {
-            conversationId: conversation.id,
-            senderType: "BOT",
-            content: msg.text,
-            attachments: msg.mediaUrl ? JSON.stringify([{ url: msg.mediaUrl, type: msg.mediaType }]) : null,
+            opensCount: { increment: 1 },
+            firstOpenedAt: campaignContact.firstOpenedAt || new Date(),
+            lastOpenedAt: new Date(),
+            status: "OPENED",
           },
         });
       }
+    }
 
-      // Log analytics event
-      await prisma.analyticsEvent.create({
+    const token = crypto.randomBytes(32).toString("base64url");
+    const nodes = JSON.parse(flow.publishedNodes || "[]");
+    const edges = JSON.parse(flow.publishedEdges || "[]");
+    const engine = new FlowEngine(nodes, edges, tenant.id, tenant.aiConfig);
+    const step = await engine.processInput({
+      tenantId: tenant.id,
+      currentNodeId: null,
+      collectedData: {},
+      sessionStatus: "ACTIVE",
+      history: [],
+    });
+
+    const conversation = await prisma.$transaction(async (tx) => {
+      const created = await tx.conversation.create({
         data: {
           tenantId: tenant.id,
           flowId: flow.id,
-          conversationId: conversation.id,
-          eventType: "SESSION_START",
-          metadata: JSON.stringify({ campaignSlug, contactSlug, referrer, device }),
+          campaignContactId,
+          visitorId,
+          publicSessionTokenHash: hash(token),
+          sessionStatus: step.sessionStatus,
+          currentNodeId: step.currentNodeId,
+          collectedData: JSON.stringify(step.updatedCollectedData),
+          visitorInfo: JSON.stringify({
+            referrer: typeof body.referrer === "string" ? body.referrer.slice(0, 2048) : null,
+            device: body.device || null,
+          }),
         },
       });
-    }
 
-    // Refresh conversation with messages
-    const fullConversation = await prisma.conversation.findUnique({
-      where: { id: conversation.id },
-      include: {
-        messages: { orderBy: { timestamp: "asc" } },
-      },
+      if (step.botMessages.length) {
+        await tx.message.createMany({
+          data: step.botMessages.map((message) => ({
+            conversationId: created.id,
+            senderType: "BOT",
+            content: message.text,
+            nodeId: step.currentNodeId || null,
+            attachments: message.mediaUrl ? JSON.stringify([{ url: message.mediaUrl, type: message.mediaType }]) : null,
+          })),
+        });
+      }
+
+      await tx.analyticsEvent.create({
+        data: {
+          tenantId: tenant.id,
+          flowId: flow.id,
+          conversationId: created.id,
+          eventType: "SESSION_START",
+        },
+      });
+
+      return created;
     });
 
-    // Find active interactive node if conversation exists
-    let interactiveNode = null;
-    if (fullConversation?.currentNodeId) {
-      interactiveNode = parsedNodes.find((n: any) => n.id === fullConversation.currentNodeId) || null;
-    } else if (stepOutput?.interactiveNode) {
-      interactiveNode = stepOutput.interactiveNode;
-    }
+    const messages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { timestamp: "asc" },
+    });
 
-    const response = NextResponse.json({
-      success: true,
-      isNewSession,
+    const data = {
       conversationId: conversation.id,
-      sessionStatus: fullConversation?.sessionStatus,
-      messages: fullConversation?.messages || [],
-      interactiveNode,
-    });
+      sessionToken: token,
+      sessionStatus: conversation.sessionStatus,
+      messages,
+      interactiveNode: step.interactiveNode,
+    };
 
-    response.headers.set("Access-Control-Allow-Origin", "*");
-    return response;
-  } catch (error: any) {
-    console.error("Widget session error:", error);
-    return NextResponse.json({ error: error.message || "Failed to start session" }, { status: 500 });
+    return NextResponse.json({ success: true, ...data, data });
+  } catch {
+    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: "Unable to start a chat session." } }, { status: 400 });
   }
-}
-
-export async function OPTIONS() {
-  const response = new NextResponse(null, { status: 204 });
-  response.headers.set("Access-Control-Allow-Origin", "*");
-  response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  response.headers.set("Access-Control-Allow-Headers", "Content-Type");
-  return response;
 }

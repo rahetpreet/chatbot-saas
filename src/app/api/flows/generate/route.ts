@@ -3,8 +3,6 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { getAIProvider } from "@/lib/services/ai";
 import { FlowNodeData } from "@/types";
-import mockStore from "@/lib/mockStore";
-import PersistentRegistry from "@/lib/persistentRegistry";
 
 interface GeneratedGraph {
   name: string;
@@ -477,14 +475,10 @@ export async function POST(req: NextRequest) {
       generated = compileFlowFromPrompt(prompt || templatePreset || "Business Assistant", tenant?.name || "Acme Corp", templatePreset);
     }
 
-    let createdFlow: any = null;
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
-
-    try {
-      // Save as new Flow in database
-      createdFlow = await prisma.flow.create({
+    const [createdFlow] = await prisma.$transaction([
+      prisma.flow.create({
         data: {
-          tenantId: effectiveTenantId,
+          tenantId,
           name: generated.name || "AI Generated Chatbot Flow",
           description: generated.description || `Generated from prompt: "${prompt?.slice(0, 50) || "Preset"}"`,
           status: "DRAFT",
@@ -492,50 +486,16 @@ export async function POST(req: NextRequest) {
           nodes: JSON.stringify(generated.nodes),
           edges: JSON.stringify(generated.edges),
         },
-      });
-
-      // Audit log
-      if (session?.userId) {
-        try {
-          await prisma.auditLog.create({
-            data: {
-              tenantId: effectiveTenantId,
-              userId: session.userId,
-              action: "FLOW_AI_GENERATED",
-              details: JSON.stringify({ flowId: createdFlow.id, prompt, name: generated.name }),
-            },
-          });
-        } catch {}
-      }
-    } catch (dbErr) {
-      console.warn("AI Flow generate DB notice (using mockStore):", dbErr);
-      const newFlow = {
-        id: `flow_ai_${Date.now()}`,
-        tenantId: effectiveTenantId,
-        name: generated.name || "AI Generated Chatbot Flow",
-        description: generated.description || `Generated from prompt: "${prompt?.slice(0, 50) || "Preset"}"`,
-        status: "DRAFT",
-        version: 1,
-        isDefault: false,
-        nodes: JSON.stringify(generated.nodes),
-        edges: JSON.stringify(generated.edges),
-        publishedNodes: JSON.stringify(generated.nodes),
-        publishedEdges: JSON.stringify(generated.edges),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        _count: { conversations: 0, analyticsEvents: 0 },
-      };
-      mockStore.flows.unshift(newFlow);
-      createdFlow = newFlow;
-    }
-
-    try {
-      if (createdFlow) {
-        PersistentRegistry.saveFlow(createdFlow);
-      }
-    } catch (e) {
-      console.warn("PersistentRegistry save AI flow error:", e);
-    }
+      }),
+      prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: session.userId,
+          action: "FLOW_AI_GENERATED",
+          details: JSON.stringify({ prompt, name: generated.name }),
+        },
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -543,6 +503,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("AI Flow Generation error:", error);
-    return NextResponse.json({ error: error.message || "Failed to generate flow with AI" }, { status: 500 });
+    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to generate flow with AI" } }, { status: 500 });
   }
 }

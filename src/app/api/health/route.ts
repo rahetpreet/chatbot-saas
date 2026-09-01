@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { requireSuperAdmin } from "@/lib/services/auth/session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    await requireSuperAdmin();
     const userCount = await prisma.user.count();
     const tenantCount = await prisma.tenant.count();
-    const users = await prisma.user.findMany({ select: { email: true, role: true } });
 
     return NextResponse.json({
       status: "OK",
       database: "CONNECTED",
       userCount,
       tenantCount,
-      users,
       timestamp: new Date().toISOString()
     });
   } catch (error: any) {

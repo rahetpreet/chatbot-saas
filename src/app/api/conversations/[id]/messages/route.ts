@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireTenantAccess } from "@/lib/services/auth/session";
+import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT"]);
     const { id: conversationId } = await params;
     const body = await req.json();
     const { content, attachments } = body;

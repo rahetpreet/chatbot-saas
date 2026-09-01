@@ -7,11 +7,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// prisma db seed executes this script; bootstrap creation is idempotent.
+
 model Tenant {
   id                  String    @id @default(cuid())
   name                String
   slug                String    @unique
-  status              String    @default("ACTIVE") // ACTIVE, PAUSED, SUSPENDED, TERMINATED
+  status              String    @default("ACTIVE") // TRIAL, ACTIVE, PAUSED, EXPIRED, CANCELLED
   planTier            String    @default("STARTER") // FREE, STARTER, PRO, ENTERPRISE
   website             String?
   industry            String?
@@ -30,6 +32,7 @@ model Tenant {
   deletedAt           DateTime?
 
   users            User[]
+  memberships      TenantUser[]
   sessions         Session[]
   flows            Flow[]
   campaigns        Campaign[]
@@ -39,6 +42,14 @@ model Tenant {
   analyticsEvents  AnalyticsEvent[]
   auditLogs        AuditLog[]
   knowledgeDocs    KnowledgeDoc[]
+  subscriptions    Subscription[]
+  contacts         Contact[]
+  chatbots         Chatbot[]
+  attachments      Attachment[]
+  webhooks         Webhook[]
+  apiKeys          ApiKey[]
+  usageRecords     UsageRecord[]
+  exportJobs       ExportJob[]
 
   @@index([slug])
   @@index([status])
@@ -48,7 +59,7 @@ model Tenant {
 model User {
   id                 String    @id @default(cuid())
   tenantId           String?   // NULL for superadmin
-  role               String    @default("CLIENT_ADMIN") // SUPER_ADMIN, CLIENT_ADMIN, CLIENT_AGENT, CLIENT_VIEWER
+  role               String    @default("CLIENT_ADMIN") // SUPER_ADMIN, CLIENT_OWNER, CLIENT_ADMIN, CLIENT_AGENT, CLIENT_VIEWER
   email              String    @unique
   name               String
   passwordHash       String
@@ -56,8 +67,8 @@ model User {
   isActive           Boolean   @default(true)
   mustChangePassword Boolean   @default(false)
   lastLoginAt        DateTime?
-  resetToken         String?
-  resetTokenExpires  DateTime?
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
@@ -65,6 +76,7 @@ model User {
   tenant             Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sessions           Session[]
   auditLogs          AuditLog[]
+  memberships        TenantUser[]
 
   @@index([tenantId])
   @@index([email])
@@ -82,6 +94,7 @@ model Session {
   lastSeenAt DateTime  @default(now())
   ipAddress  String?
   userAgent  String?
+  impersonatedByUserId String?
 
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -90,6 +103,103 @@ model Session {
   @@index([tenantId])
   @@index([tokenHash])
   @@index([expiresAt])
+}
+
+model TenantUser {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      String   @default("CLIENT_ADMIN")
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  features  PlanFeature[]
+  subscriptions Subscription[]
+}
+
+model PlanFeature {
+  id        String   @id @default(cuid())
+  planId    String
+  key       String
+  value     Int?
+  enabled   Boolean  @default(true)
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  tenantId  String
+  planId    String
+  status    String   @default("ACTIVE")
+  startedAt DateTime @default(now())
+  endsAt    DateTime?
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan      Plan     @relation(fields: [planId], references: [id])
+
+  @@index([tenantId, status])
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String?
+  email     String?
+  phone     String?
+  company   String?
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, email])
+  @@index([tenantId, phone])
+}
+
+model Chatbot {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  publicId  String   @unique @default(cuid())
+  description String?
+  status    String   @default("DRAFT")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  versions  ChatbotVersion[]
+
+  @@index([tenantId, status])
+}
+
+model ChatbotVersion {
+  id          String   @id @default(cuid())
+  chatbotId   String
+  versionNumber Int
+  status      String   @default("DRAFT")
+  configJson  String   @default("{}")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  publishedAt DateTime?
+  chatbot     Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@unique([chatbotId, versionNumber])
+  @@index([chatbotId, status])
 }
 
 model Flow {
@@ -173,6 +283,7 @@ model Conversation {
   flowId            String?
   campaignContactId String?
   visitorId         String
+  publicSessionTokenHash String? @unique
   sessionStatus     String    @default("ACTIVE") // ACTIVE, HANDOVER, RESOLVED, ABANDONED
   visitorInfo       String?   // JSON string: ip, browser, os, device, country, referrer, utm
   collectedData     String?   @default("{}") // JSON string
@@ -295,3 +406,79 @@ model DevEmail {
 
   @@index([createdAt])
 }
+
+model Attachment {
+  id               String   @id @default(cuid())
+  tenantId         String
+  conversationId   String?
+  messageId        String?
+  contactId        String?
+  storageKey       String
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+  createdAt        DateTime @default(now())
+
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([storageKey])
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  tenantId  String
+  event     String
+  url       String
+  secret    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  tenantId   String
+  name       String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model UsageRecord {
+  id        String   @id @default(cuid())
+  tenantId  String
+  metric    String   // "MESSAGES", "FLOWS", "STORAGE_MB", "CAMPAIGN_LINKS"
+  quantity  Int      @default(0)
+  period    String   // "2026-09"
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, metric, period])
+  @@index([tenantId])
+}
+
+model ExportJob {
+  id          String   @id @default(cuid())
+  tenantId    String
+  type        String   // "CONVERSATIONS", "CONTACTS", "LEADS"
+  status      String   @default("PENDING") // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  downloadUrl String?
+  filters     String?  // JSON
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+

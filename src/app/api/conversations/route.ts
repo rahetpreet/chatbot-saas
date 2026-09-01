@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireTenantAccess } from "@/lib/services/auth/session";
-
-import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status"); // ACTIVE, HANDOVER, RESOLVED, ABANDONED
     const campaignId = searchParams.get("campaignId");
     const flowId = searchParams.get("flowId");
 
-    const where: Record<string, any> = { tenantId: effectiveTenantId };
+    const where: Record<string, any> = { tenantId };
 
     if (status && status !== "ALL") {
       where.sessionStatus = status;
@@ -25,10 +22,7 @@ export async function GET(req: NextRequest) {
       where.flowId = flowId;
     }
 
-    let conversations: any[] = [];
-    try {
-      conversations = await withDbTimeout<any>(
-        prisma.conversation.findMany({
+    const conversations = await prisma.conversation.findMany({
           where,
           orderBy: { lastActiveAt: "desc" },
           take: 100,
@@ -51,21 +45,10 @@ export async function GET(req: NextRequest) {
               select: { messages: true },
             },
           },
-        }),
-        mockStore.conversations,
-        600
-      );
-    } catch (dbErr) {
-      console.warn("Conversations GET DB notice (using mockStore):", dbErr);
-      conversations = mockStore.conversations;
-    }
-
-    if (conversations.length === 0) {
-      conversations = mockStore.conversations;
-    }
+        });
 
     return NextResponse.json({ conversations });
   } catch (error: any) {
-    return NextResponse.json({ conversations: mockStore.conversations });
+    return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 403 });
   }
 }

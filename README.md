@@ -85,12 +85,15 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 🔑 Default Credentials (Pre-Seeded)
+## FIRST SETUP
 
-| Role | Email | Password | Description |
-| :--- | :--- | :--- | :--- |
-| **Super Admin** | `admin@platform.local` | `Password123!` | Global platform dashboard, tenant onboarding, quotas, impersonation |
-| **Client Admin (Acme Corp)** | `client@acme.com` | `Password123!` | Demo tenant with published multi-branch flow, leads, campaigns |
+1. Create a Neon PostgreSQL project and copy its pooled connection string to `DATABASE_URL`; use the direct connection string for `DIRECT_URL`.
+2. Copy `.env.example` to `.env` and set `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD`, and `APP_URL`. Generate strong random values for application secrets.
+3. Generate Prisma Client, apply the checked-in migration as an explicit step, then run `npm run db:seed` once.
+4. The seed creates a Super Admin only when none exists and never overwrites a password. Sign in with the bootstrap credentials, then create tenants; each client password is generated and returned exactly once.
+5. For Vercel, configure the variables independently for Development, Preview, and Production, then redeploy after a Production change.
+
+For free local development set `EMAIL_PROVIDER=console`. Production may use SMTP via `SMTP_*`; no paid email, AI, or storage provider is mandatory.
 
 ---
 

@@ -15,6 +15,7 @@
   // Persistent Visitor UUID in LocalStorage
   const STORAGE_KEY_VISITOR = `chatflow_${tenantSlug}_visitor`;
   const STORAGE_KEY_CONV = `chatflow_${tenantSlug}_conv_id`;
+  const STORAGE_KEY_TOKEN = `chatflow_${tenantSlug}_session_token`;
 
   function getVisitorId() {
     let vid = localStorage.getItem(STORAGE_KEY_VISITOR);
@@ -27,6 +28,7 @@
 
   const visitorId = getVisitorId();
   let conversationId = localStorage.getItem(STORAGE_KEY_CONV);
+  let sessionToken = localStorage.getItem(STORAGE_KEY_TOKEN);
   let sessionStatus = "ACTIVE";
   let interactiveNode = null;
   let widgetConfig = null;
@@ -418,6 +420,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId,
+          sessionToken,
           flowId: customFlowId,
           userInput: inputObj,
         }),
@@ -470,7 +473,9 @@
       const data = await res.json();
       if (data.success) {
         conversationId = data.conversationId;
+        sessionToken = data.sessionToken;
         localStorage.setItem(STORAGE_KEY_CONV, conversationId);
+        localStorage.setItem(STORAGE_KEY_TOKEN, sessionToken);
         sessionStatus = data.sessionStatus;
         interactiveNode = data.interactiveNode;
 
@@ -497,9 +502,9 @@
   function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(async () => {
-      if (!conversationId || !isOpen) return;
+      if (!conversationId || !sessionToken || !isOpen) return;
       try {
-        const res = await fetch(`${baseUrl}/api/widget/sync?conversationId=${conversationId}`);
+        const res = await fetch(`${baseUrl}/api/widget/sync?conversationId=${encodeURIComponent(conversationId)}&sessionToken=${encodeURIComponent(sessionToken)}`);
         const data = await res.json();
         if (data.success && data.messages) {
           const currentCount = messagesBody.querySelectorAll(".msg-row").length;
@@ -572,6 +577,7 @@
     formData.append("file", file);
     formData.append("tenantSlug", tenantSlug);
     formData.append("conversationId", conversationId || "");
+    formData.append("sessionToken", sessionToken || "");
 
     showTypingIndicator();
     try {

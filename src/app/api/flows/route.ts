@@ -1,54 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireTenantAccess } from "@/lib/services/auth/session";
-
-import mockStore, { withDbTimeout } from "@/lib/mockStore";
-import PersistentRegistry from "@/lib/persistentRegistry";
+import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "t_acme_corp");
-
-    let flows: any[] = [];
-    try {
-      flows = await withDbTimeout<any>(
-        prisma.flow.findMany({
-          where: effectiveTenantId === "SUPER_ADMIN" ? {} : { tenantId: effectiveTenantId },
-          orderBy: { updatedAt: "desc" },
-          include: {
-            _count: {
-              select: {
-                conversations: true,
-                analyticsEvents: true,
-              },
-            },
-          },
-        }),
-        null,
-        600
-      );
-    } catch (dbErr) {
-      console.warn("Flows GET DB notice:", dbErr);
-    }
-
-    if (!flows || flows.length === 0) {
-      const regFlows = PersistentRegistry.getFlows(effectiveTenantId);
-      flows = regFlows.length > 0 ? regFlows : mockStore.getFlows(effectiveTenantId);
-    }
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const flows = await prisma.flow.findMany({ where: { tenantId, deletedAt: null }, orderBy: { updatedAt: "desc" }, include: { _count: { select: { conversations: true, analyticsEvents: true } } } });
 
     return NextResponse.json({ flows });
   } catch (error: any) {
-    console.warn("Flows GET fallback:", error?.message);
-    const regFlows = PersistentRegistry.getFlows("SUPER_ADMIN");
-    return NextResponse.json({ flows: regFlows.length > 0 ? regFlows : mockStore.flows });
+    return NextResponse.json({ error: error?.message || "Unauthorized" }, { status: 403 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantAccess();
-    const effectiveTenantId = tenantId || (session.role === "SUPER_ADMIN" ? "t_acme_corp" : session.tenantId || "t_acme_corp");
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const body = await req.json();
     const { name, description } = body;
 
@@ -77,11 +44,10 @@ export async function POST(req: NextRequest) {
 
     const defaultEdges = [{ id: "e1", source: "start-1", target: "msg-1" }];
 
-    let flow: any = null;
-    try {
-      flow = await prisma.flow.create({
+    const flow = await prisma.$transaction(async (tx) => {
+      const created = await tx.flow.create({
         data: {
-          tenantId: effectiveTenantId,
+          tenantId,
           name,
           description,
           status: "DRAFT",
@@ -89,47 +55,9 @@ export async function POST(req: NextRequest) {
           edges: JSON.stringify(defaultEdges),
         },
       });
-
-      // Audit log
-      try {
-        await prisma.auditLog.create({
-          data: {
-            tenantId: effectiveTenantId,
-            userId: session.userId,
-            action: "FLOW_CREATED",
-            details: JSON.stringify({ flowId: flow.id, name: flow.name }),
-          },
-        });
-      } catch {}
-    } catch (dbErr) {
-      console.warn("Flows POST DB notice (using mockStore):", dbErr);
-      const newFlow = {
-        id: `flow_${Date.now()}`,
-        tenantId: effectiveTenantId,
-        name,
-        description: description || "",
-        version: 1,
-        status: "DRAFT",
-        isDefault: false,
-        nodes: JSON.stringify(defaultNodes),
-        edges: JSON.stringify(defaultEdges),
-        publishedNodes: JSON.stringify(defaultNodes),
-        publishedEdges: JSON.stringify(defaultEdges),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        _count: { conversations: 0, analyticsEvents: 0 },
-      };
-      mockStore.flows.unshift(newFlow);
-      flow = newFlow;
-    }
-
-    try {
-      if (flow) {
-        PersistentRegistry.saveFlow(flow);
-      }
-    } catch (e) {
-      console.warn("PersistentRegistry save flow notice:", e);
-    }
+      await tx.auditLog.create({ data: { tenantId, userId: session.userId, action: "FLOW_CREATED", details: JSON.stringify({ flowId: created.id, name: created.name }) } });
+      return created;
+    });
 
     return NextResponse.json({ success: true, flow });
   } catch (error: any) {

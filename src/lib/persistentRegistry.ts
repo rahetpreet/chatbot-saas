@@ -68,7 +68,8 @@ function getInitialState(): RegistryState {
   return {
     superAdmin: {
       email: "admin@platform.local",
-      passwordHash: "$2a$10$2H0k6sJ2L6aO5Vj3K8qZ7eE6Q9y.9V0J2aB3C4D5E6F7G8H9I0J1K", // AdminSuper2026!#
+      // Development registry data is never used for authentication.
+      passwordHash: "",
       updatedAt: new Date().toISOString(),
     },
     tenants: [

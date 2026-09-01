@@ -2,15 +2,16 @@
   "name": "nocode-chatbot-saas",
   "version": "1.0.0",
   "private": true,
+  "prisma": {
+    "seed": "node prisma/seed.ts"
+  },
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "prisma generate && next build --webpack",
+    "build": "prisma generate && node --require ./patch-node24.cjs ./node_modules/next/dist/bin/next build --webpack",
     "start": "next start",
-    "lint": "next lint",
-    "db:push": "prisma db push",
-    "db:seed": "npx tsx prisma/seed.ts",
-    "db:sqlite": "node scripts/switch-db.js sqlite && prisma db push --accept-data-loss && prisma generate && npx tsx prisma/seed.ts",
-    "db:postgres": "node scripts/switch-db.js postgres && prisma db push && prisma generate && npx tsx prisma/seed.ts",
+    "test": "npx tsx tests/spec-verification.test.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
     "postinstall": "prisma generate"
   },
   "dependencies": {
