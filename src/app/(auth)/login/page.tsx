@@ -28,20 +28,25 @@ export default function LoginPage() {
       });
 
       const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error || "Login failed");
+      if (!res.ok || !data.success) {
+        const errorMsg =
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.message || "Invalid email or password";
+        setError(errorMsg);
         setLoading(false);
         return;
       }
 
-      if (data.user.role === "SUPER_ADMIN") {
+      const user = data.user || data.data?.user;
+      if (user?.role === "SUPER_ADMIN") {
         router.push("/superadmin/dashboard");
       } else {
         router.push("/dashboard");
       }
       router.refresh();
     } catch {
-      setError("Network connection error");
+      setError("Network connection error. Please try again.");
       setLoading(false);
     }
   };

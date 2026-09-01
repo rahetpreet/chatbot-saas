@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
       prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
       prisma.auditLog.create({ data: { tenantId: user.tenantId, userId: user.id, action: "LOGIN_SUCCEEDED", ipAddress } }),
     ]);
-    const response = NextResponse.json({ success: true, data: { user: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId, mustChangePassword: user.mustChangePassword } } });
+    const userPayload = { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId, mustChangePassword: user.mustChangePassword };
+    const response = NextResponse.json({ success: true, user: userPayload, data: { user: userPayload } });
     return setSessionCookie(response, token, expiresAt);
   } catch {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: "Unable to process login." } }, { status: 400 });
