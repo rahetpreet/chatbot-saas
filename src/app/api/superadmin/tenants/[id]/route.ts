@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
-
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
+import { TenantService } from "@/lib/services/tenant/tenantService";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -11,21 +11,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     let tenant: any = null;
     try {
-      tenant = await prisma.tenant.findUnique({
-        where: { id },
-        include: {
-          users: { select: { id: true, email: true, name: true, role: true, status: true } },
-          flows: { select: { id: true, name: true, status: true, version: true, isDefault: true, updatedAt: true } },
-          campaigns: { select: { id: true, name: true, slug: true, opensCount: true, conversionsCount: true } },
-          _count: {
-            select: {
-              conversations: true,
-              leads: true,
-              analyticsEvents: true,
+      tenant = await withDbTimeout<any>(
+        prisma.tenant.findUnique({
+          where: { id },
+          include: {
+            users: { select: { id: true, email: true, name: true, role: true, status: true } },
+            flows: { select: { id: true, name: true, status: true, version: true, isDefault: true, updatedAt: true } },
+            campaigns: { select: { id: true, name: true, slug: true, opensCount: true, conversionsCount: true } },
+            _count: {
+              select: {
+                conversations: true,
+                leads: true,
+                analyticsEvents: true,
+              },
             },
           },
-        },
-      });
+        }),
+        null,
+        600
+      );
     } catch (dbErr) {
       console.warn("Single tenant DB GET notice:", dbErr);
     }
@@ -84,7 +88,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           data: {
             tenantId: id,
             userId: superAdmin.userId,
-            action: "TENANT_UPDATED",
+            action: "SUPERADMIN_UPDATE_TENANT",
             details: JSON.stringify(updateData),
           },
         });
@@ -110,22 +114,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     const superAdmin = await requireSuperAdmin();
     const { id } = await params;
+    const ipAddress = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "127.0.0.1";
 
-    const tenant = await prisma.tenant.delete({
-      where: { id },
-    });
+    const result = await TenantService.deleteTenant(id, superAdmin.userId, ipAddress);
 
-    await prisma.auditLog.create({
-      data: {
-        tenantId: null,
-        userId: superAdmin.userId,
-        action: "TENANT_DELETED",
-        details: JSON.stringify({ tenantId: id, name: tenant.name, slug: tenant.slug }),
-      },
-    });
-
-    return NextResponse.json({ success: true, message: "Tenant deleted" });
+    return NextResponse.json(result);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Delete failed" }, { status: 400 });
+    console.error("Delete tenant error:", error);
+    return NextResponse.json({ error: error.message || "Failed to delete company workspace" }, { status: 500 });
   }
 }

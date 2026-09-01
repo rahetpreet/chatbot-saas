@@ -1,24 +1,24 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import {
-  Building2,
   Plus,
   ExternalLink,
   Sliders,
-  Play,
-  Pause,
-  AlertOctagon,
   Trash2,
   RefreshCw,
   Search,
+  KeyRound,
+  Copy,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldCheck,
+  Building2,
 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
 
 export default function SuperAdminTenantsPage() {
   const [tenants, setTenants] = useState<any[]>([]);
@@ -26,6 +26,8 @@ export default function SuperAdminTenantsPage() {
   const [search, setSearch] = useState("");
   const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
   const [isQuotasModalOpen, setIsQuotasModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
 
   // New Tenant Form State
@@ -33,10 +35,19 @@ export default function SuperAdminTenantsPage() {
   const [formSlug, setFormSlug] = useState("");
   const [formAdminEmail, setFormAdminEmail] = useState("");
   const [formAdminName, setFormAdminName] = useState("");
-  const [formAdminPassword, setFormAdminPassword] = useState("Password123!");
   const [formPlanTier, setFormPlanTier] = useState("STARTER");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // One-time credentials state
+  const [oneTimeCredentials, setOneTimeCredentials] = useState<{
+    companyName: string;
+    email: string;
+    temporaryPassword: string;
+    loginUrl: string;
+    slug?: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Quotas edit state
   const [quotaMessages, setQuotaMessages] = useState(5000);
@@ -76,7 +87,6 @@ export default function SuperAdminTenantsPage() {
           slug: formSlug,
           adminEmail: formAdminEmail,
           adminName: formAdminName,
-          adminPassword: formAdminPassword,
           planTier: formPlanTier,
         }),
       });
@@ -93,6 +103,20 @@ export default function SuperAdminTenantsPage() {
       setFormSlug("");
       setFormAdminEmail("");
       setFormAdminName("");
+
+      // Open One-Time Credentials Modal
+      if (data.credentials) {
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        setOneTimeCredentials({
+          companyName: data.tenant?.name || formName,
+          email: data.credentials.email,
+          temporaryPassword: data.credentials.temporaryPassword,
+          loginUrl: `${origin}/login`,
+          slug: data.credentials.slug,
+        });
+        setIsCredentialsModalOpen(true);
+      }
+
       fetchTenants();
     } catch {
       setFormError("Network error occurred");
@@ -101,7 +125,60 @@ export default function SuperAdminTenantsPage() {
     }
   };
 
-  // 2. Lifecycle Status Changer
+  // 2. Reset Client Password
+  const handleResetPassword = async (tenant: any) => {
+    if (!confirm(`Generate a new random temporary password for ${tenant.name}?`)) return;
+
+    try {
+      const res = await fetch(`/api/superadmin/tenants/${tenant.id}/reset-password`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || "Failed to reset password");
+        return;
+      }
+
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      setOneTimeCredentials({
+        companyName: tenant.name,
+        email: data.credentials?.email || tenant.users?.[0]?.email,
+        temporaryPassword: data.credentials?.temporaryPassword,
+        loginUrl: `${origin}/login`,
+        slug: tenant.slug,
+      });
+      setIsCredentialsModalOpen(true);
+    } catch {
+      alert("Failed to reset password");
+    }
+  };
+
+  // 3. Delete Company
+  const handleDeleteTenant = async () => {
+    if (!selectedTenant) return;
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/superadmin/tenants/${selectedTenant.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || "Failed to delete company");
+        return;
+      }
+
+      setIsDeleteModalOpen(false);
+      setSelectedTenant(null);
+      fetchTenants();
+    } catch {
+      alert("Network error deleting company");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 4. Lifecycle Status Changer
   const handleUpdateStatus = async (tenantId: string, status: string) => {
     try {
       await fetch(`/api/superadmin/tenants/${tenantId}`, {
@@ -115,7 +192,7 @@ export default function SuperAdminTenantsPage() {
     }
   };
 
-  // 3. Impersonate Tenant
+  // 5. Impersonate Tenant
   const handleImpersonate = async (tenantId: string) => {
     try {
       const res = await fetch("/api/auth/impersonate", {
@@ -134,7 +211,7 @@ export default function SuperAdminTenantsPage() {
     }
   };
 
-  // 4. Save Quotas
+  // 6. Save Quotas
   const handleSaveQuotas = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTenant) return;
@@ -157,6 +234,15 @@ export default function SuperAdminTenantsPage() {
     }
   };
 
+  const copyCredentials = () => {
+    if (!oneTimeCredentials) return;
+    const text = `Chatbot SaaS Workspace Credentials\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nCompany: ${oneTimeCredentials.companyName}\nAdmin Login: ${oneTimeCredentials.email}\nTemporary Password: ${oneTimeCredentials.temporaryPassword}\nLogin Portal: ${oneTimeCredentials.loginUrl}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n*Please change your temporary password upon first login.*`;
+
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
+
   const openQuotasEditor = (tenant: any) => {
     setSelectedTenant(tenant);
     setQuotaMessages(tenant.maxMessagesPerMonth || 5000);
@@ -166,8 +252,15 @@ export default function SuperAdminTenantsPage() {
     setIsQuotasModalOpen(true);
   };
 
-  const filteredTenants = tenants.filter((t) =>
-    t.name.toLowerCase().includes(search.toLowerCase()) || t.slug.toLowerCase().includes(search.toLowerCase())
+  const openDeleteConfirmation = (tenant: any) => {
+    setSelectedTenant(tenant);
+    setIsDeleteModalOpen(true);
+  };
+
+  const filteredTenants = tenants.filter(
+    (t) =>
+      t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.slug.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -177,7 +270,7 @@ export default function SuperAdminTenantsPage() {
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Company & Tenant Lifecycle</h1>
           <p className="text-sm text-slate-500">
-            Onboard new businesses, adjust plan quotas, and impersonate client dashboards.
+            Onboard new businesses, adjust plan quotas, reset credentials, and manage workspaces.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -190,7 +283,7 @@ export default function SuperAdminTenantsPage() {
 
       {/* Tenants Table Card */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
           <div className="flex items-center gap-2">
             <div className="relative w-64">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -199,7 +292,7 @@ export default function SuperAdminTenantsPage() {
                 placeholder="Search companies or slugs..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
             <Button size="sm" variant="outline" onClick={fetchTenants} className="h-8">
@@ -260,7 +353,7 @@ export default function SuperAdminTenantsPage() {
                         </select>
                       </td>
                       <td className="p-3">
-                        <span className="text-slate-700">{t.users?.[0]?.email || "-"}</span>
+                        <span className="text-slate-700 font-mono text-[11px]">{t.users?.[0]?.email || "-"}</span>
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2 text-slate-600">
@@ -283,6 +376,18 @@ export default function SuperAdminTenantsPage() {
                             <span>Impersonate</span>
                           </Button>
 
+                          {/* Reset Password Button */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleResetPassword(t)}
+                            className="h-7 text-[11px] text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100 gap-1"
+                            title="Reset Client Password"
+                          >
+                            <KeyRound className="w-3 h-3" />
+                            <span>Reset Pass</span>
+                          </Button>
+
                           {/* Quotas Button */}
                           <Button
                             size="sm"
@@ -293,6 +398,17 @@ export default function SuperAdminTenantsPage() {
                           >
                             <Sliders className="w-3 h-3" />
                             <span>Quotas</span>
+                          </Button>
+
+                          {/* Delete Button */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openDeleteConfirmation(t)}
+                            className="h-7 text-[11px] text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100 p-1.5"
+                            title="Delete Company"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </td>
@@ -310,7 +426,7 @@ export default function SuperAdminTenantsPage() {
         isOpen={isOnboardModalOpen}
         onClose={() => setIsOnboardModalOpen(false)}
         title="Onboard New Company"
-        description="Creates a new multi-tenant workspace, initial bot flow, and primary client admin account."
+        description="Creates a new multi-tenant workspace, starter flow, and primary client account."
       >
         <form onSubmit={handleOnboard} className="space-y-3 text-xs">
           {formError && (
@@ -325,7 +441,7 @@ export default function SuperAdminTenantsPage() {
             value={formName}
             onChange={(e) => {
               setFormName(e.target.value);
-              if (!formSlug) setFormSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"));
+              if (!formSlug) setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-"));
             }}
             placeholder="e.g. Acme Corporation"
           />
@@ -334,7 +450,7 @@ export default function SuperAdminTenantsPage() {
             label="Subdomain / Slug"
             required
             value={formSlug}
-            onChange={(e) => setFormSlug(e.target.value)}
+            onChange={(e) => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
             placeholder="acme-corp"
             helperText="Used for campaign links: /c/acme-corp"
           />
@@ -371,24 +487,110 @@ export default function SuperAdminTenantsPage() {
             placeholder="admin@company.com"
           />
 
-          <Input
-            label="Initial Password"
-            type="password"
-            required
-            value={formAdminPassword}
-            onChange={(e) => setFormAdminPassword(e.target.value)}
-            placeholder="••••••••"
-          />
+          {/* Secure password generator notice */}
+          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
+            <div className="text-[11px] text-indigo-900 leading-relaxed">
+              <span className="font-bold">Cryptographically Secure Password:</span> A high-entropy 16-character
+              temporary password will be automatically generated upon creation and displayed for you to copy and share
+              with the client.
+            </div>
+          </div>
 
           <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
             <Button type="button" variant="outline" onClick={() => setIsOnboardModalOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" loading={isSubmitting} className="font-bold">
-              Create & Onboard
+              Generate & Onboard
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* One-Time Credentials Modal */}
+      <Modal
+        isOpen={isCredentialsModalOpen}
+        onClose={() => setIsCredentialsModalOpen(false)}
+        title="🎉 Credentials Generated"
+        description="Save this temporary password now. It is displayed only once."
+      >
+        {oneTimeCredentials && (
+          <div className="space-y-4 text-xs">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-[11px] leading-relaxed">
+                <span className="font-bold">Important:</span> This password is shown only once and cannot be retrieved
+                later. Copy these details and securely send them to your client.
+              </div>
+            </div>
+
+            <div className="space-y-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-lg font-mono">
+              <div className="flex justify-between items-center text-slate-600">
+                <span className="font-semibold font-sans text-slate-500">Company:</span>
+                <span className="font-bold text-slate-900">{oneTimeCredentials.companyName}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-600">
+                <span className="font-semibold font-sans text-slate-500">Login Email:</span>
+                <span className="text-indigo-600 font-bold">{oneTimeCredentials.email}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-600">
+                <span className="font-semibold font-sans text-slate-500">Temporary Password:</span>
+                <span className="text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                  {oneTimeCredentials.temporaryPassword}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-slate-600">
+                <span className="font-semibold font-sans text-slate-500">Login Portal:</span>
+                <span className="text-slate-700">{oneTimeCredentials.loginUrl}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button onClick={copyCredentials} className="w-full gap-2 font-bold bg-indigo-600 hover:bg-indigo-700">
+                {copied ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                    <span>Copied to Clipboard!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copy Full Credentials</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="⚠️ Delete Company Workspace"
+        description="Are you sure you want to permanently delete this company?"
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 leading-relaxed">
+            Deleting <span className="font-bold">{selectedTenant?.name}</span> will permanently erase all associated
+            chatbot flows, campaign links, visitor conversations, and leads. This action cannot be undone.
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteTenant}
+              loading={isSubmitting}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+            >
+              Permanently Delete
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Quotas Editor Modal */}

@@ -17,10 +17,19 @@ import {
   CheckCircle2,
   Cpu,
   ShieldCheck,
+  KeyRound,
+  Lock,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"smtp" | "ai" | "knowledge">("smtp");
+  const [activeTab, setActiveTab] = useState<"smtp" | "ai" | "knowledge" | "security">("smtp");
+
+  // Security & Password state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordFeedback, setPasswordFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   // SMTP state
   const [smtpConfig, setSmtpConfig] = useState({
@@ -199,6 +208,38 @@ export default function SettingsPage() {
     }
   };
 
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordFeedback(null);
+    setChangingPassword(true);
+
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setPasswordFeedback({ type: "error", msg: data.error || "Failed to update password." });
+      } else {
+        setPasswordFeedback({ type: "success", msg: "Password updated successfully!" });
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+      }
+    } catch {
+      setPasswordFeedback({ type: "error", msg: "Network error occurred." });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       {/* Header */}
@@ -239,6 +280,16 @@ export default function SettingsPage() {
         >
           <BookOpen className="w-4 h-4" />
           <span>FAQ Knowledge Base ({knowledgeDocs.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("security")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+            activeTab === "security" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Security & Password</span>
         </button>
       </div>
 
@@ -616,6 +667,73 @@ export default function SettingsPage() {
               </div>
             </form>
           </Modal>
+        </div>
+      )}
+
+      {/* TAB 4: Security & Password */}
+      {activeTab === "security" && (
+        <div className="space-y-4 animate-fade-in">
+          <Card>
+            <form onSubmit={handlePasswordChange}>
+              <CardHeader>
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-indigo-600" />
+                  <span>Update Account Password</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Change your current temporary or permanent password. Must be at least 8 characters with a mix of uppercase, lowercase, and numbers.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {passwordFeedback && (
+                  <div
+                    className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${
+                      passwordFeedback.type === "success"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : "bg-rose-50 text-rose-800 border-rose-200"
+                    }`}
+                  >
+                    {passwordFeedback.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : null}
+                    <span>{passwordFeedback.msg}</span>
+                  </div>
+                )}
+
+                <Input
+                  label="Current Password"
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current / temporary password"
+                />
+
+                <Input
+                  label="New Password"
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 8 characters with mixed case & numbers"
+                />
+
+                <Input
+                  label="Confirm New Password"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                />
+              </CardContent>
+              <CardFooter className="justify-end">
+                <Button type="submit" loading={changingPassword} className="font-bold text-xs">
+                  Update Password
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
         </div>
       )}
     </div>
