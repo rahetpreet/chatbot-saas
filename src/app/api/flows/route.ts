@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { FlowRepository } from "@/lib/repositories/flowRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
+import { validateRequest, createFlowSchema } from "@/lib/validation";
 
 export async function GET(req: NextRequest) {
   try {
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
-    const flows = await prisma.flow.findMany({ where: { tenantId, deletedAt: null }, orderBy: { updatedAt: "desc" }, include: { _count: { select: { conversations: true, analyticsEvents: true } } } });
+    const flows = await FlowRepository.findByTenant(tenantId);
 
     return NextResponse.json({ flows });
   } catch (error: any) {
@@ -17,11 +19,11 @@ export async function POST(req: NextRequest) {
   try {
     const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const body = await req.json();
-    const { name, description } = body;
-
-    if (!name) {
-      return NextResponse.json({ error: "Flow name is required" }, { status: 400 });
-    }
+    
+    const validation = await validateRequest(createFlowSchema, body);
+    if (!validation.success) return NextResponse.json({ error: validation.error }, { status: 400 });
+    
+    const { name, description, nodes, edges } = validation.data;
 
     const defaultNodes = [
       {
@@ -51,8 +53,8 @@ export async function POST(req: NextRequest) {
           name,
           description,
           status: "DRAFT",
-          nodes: JSON.stringify(defaultNodes),
-          edges: JSON.stringify(defaultEdges),
+          nodes: JSON.stringify(nodes || defaultNodes),
+          edges: JSON.stringify(edges || defaultEdges),
         },
       });
       await tx.auditLog.create({ data: { tenantId, userId: session.userId, action: "FLOW_CREATED", details: JSON.stringify({ flowId: created.id, name: created.name }) } });

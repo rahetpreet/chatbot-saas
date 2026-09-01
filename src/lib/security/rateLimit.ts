@@ -1,8 +1,8 @@
-type Entry = { count: number; resetAt: number };
-const store = new Map<string, Entry>();
+import { getRateLimitStore } from "./rateLimitStore";
 
-/** Local development fallback. Production deployments can replace this provider with a shared store. */
+/** Production-ready rate limiting with pluggable store backend. */
 export function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const store = getRateLimitStore();
   const now = Date.now();
   const current = store.get(key);
   if (!current || current.resetAt <= now) {
@@ -12,4 +12,16 @@ export function checkRateLimit(key: string, limit: number, windowMs: number): bo
   if (current.count >= limit) return false;
   current.count += 1;
   return true;
+}
+
+/** Reset rate limit for a specific key (useful for testing or manual resets). */
+export function resetRateLimit(key: string): void {
+  const store = getRateLimitStore();
+  store.delete(key);
+}
+
+/** Clear all rate limits (useful for testing only). */
+export function clearAllRateLimits(): void {
+  const store = getRateLimitStore();
+  store.clear();
 }

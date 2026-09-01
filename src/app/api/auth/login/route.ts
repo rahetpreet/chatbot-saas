@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { verifyPassword } from "@/lib/security/password";
 import { createSession, setSessionCookie } from "@/lib/services/auth/session";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { validateRequest, loginSchema } from "@/lib/validation";
 
 const invalidCredentials = { success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid email or password" } };
 
@@ -11,9 +12,10 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(`login:${ipAddress}`, 10, 15 * 60_000)) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." } }, { status: 429 });
   try {
     const body = await req.json();
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
-    if (!email || !password || email.length > 320 || password.length > 1024) return NextResponse.json(invalidCredentials, { status: 401 });
+    const validation = await validateRequest(loginSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { email, password } = validation.data;
     const user = await prisma.user.findUnique({ where: { email }, include: { tenant: true } });
     const valid = user ? await verifyPassword(password, user.passwordHash) : false;
     if (!user || !valid || !user.isActive || user.status !== "ACTIVE") {

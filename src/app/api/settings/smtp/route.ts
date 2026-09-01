@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { SMTPProvider } from "@/lib/services/email";
+import { validateRequest, smtpConfigSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest) {
   try {
@@ -38,20 +39,20 @@ export async function POST(req: NextRequest) {
   try {
     const { tenantId, session } = await requireTenantAccess();
     const body = await req.json();
-    const { host, port, user, pass, secure, from, testEmail } = body;
+    
+    const validation = await validateRequest(smtpConfigSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { host, port, user, pass, secure, from, testEmail } = validation.data;
 
     // If testing connection
     if (testEmail) {
-      if (!host || !user || !pass) {
-        return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Host, user, and password are required to test SMTP" } }, { status: 400 });
-      }
-
       const smtpProvider = new SMTPProvider({
         host,
-        port: Number(port) || 587,
+        port,
         user,
         pass,
-        secure: Boolean(secure),
+        secure,
         from: from || user,
       });
 
@@ -76,10 +77,10 @@ export async function POST(req: NextRequest) {
 
     const configToSave = {
       host: host || "",
-      port: Number(port) || 587,
+      port: port || 587,
       user: user || "",
       pass: finalPass || "",
-      secure: Boolean(secure),
+      secure: secure || false,
       from: from || user || "",
     };
 

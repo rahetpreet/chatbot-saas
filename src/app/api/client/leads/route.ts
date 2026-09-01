@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { LeadRepository } from "@/lib/repositories/leadRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
@@ -9,29 +9,9 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status");
     const search = searchParams.get("search")?.slice(0, 160);
 
-    const where: Record<string, unknown> = { tenantId, deletedAt: null };
-    if (status && status !== "ALL") where.status = status;
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    const leads = await prisma.lead.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        conversation: {
-          select: {
-            id: true,
-            sessionStatus: true,
-            startedAt: true,
-            flow: { select: { name: true } },
-          },
-        },
-      },
+    const leads = await LeadRepository.findByTenant(tenantId, {
+      status: status || undefined,
+      search: search || undefined,
     });
 
     return NextResponse.json({ success: true, data: { leads }, leads });

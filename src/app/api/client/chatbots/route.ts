@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { FlowRepository } from "@/lib/repositories/flowRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
 import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { validateRequest, createFlowSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest) {
   try {
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
 
-    const chatbots = await prisma.flow.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { updatedAt: "desc" },
-      include: {
-        _count: {
-          select: {
-            conversations: true,
-            analyticsEvents: true,
-          },
-        },
-      },
-    });
+    const chatbots = await FlowRepository.findByTenant(tenantId);
 
     return NextResponse.json({ success: true, data: { chatbots }, chatbots });
   } catch (error: any) {
@@ -32,8 +23,10 @@ export async function POST(req: NextRequest) {
     await assertUsageAvailable(tenantId, "flows");
 
     const body = await req.json();
-    const name = typeof body.name === "string" ? body.name.trim() : "New Chatbot Flow";
-    const description = typeof body.description === "string" ? body.description.trim() : null;
+    const validation = await validateRequest(createFlowSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { name, description, nodes, edges } = validation.data;
 
     const defaultNodes = [
       { id: "start-1", type: "start", position: { x: 250, y: 50 }, data: { label: "Trigger: Visitor Opens Widget", nodeType: "start" } },
@@ -49,8 +42,8 @@ export async function POST(req: NextRequest) {
           description,
           status: "DRAFT",
           version: 1,
-          nodes: JSON.stringify(body.nodes || defaultNodes),
-          edges: JSON.stringify(body.edges || defaultEdges),
+          nodes: JSON.stringify(nodes || defaultNodes),
+          edges: JSON.stringify(edges || defaultEdges),
         },
       });
 

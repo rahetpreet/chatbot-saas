@@ -3,13 +3,17 @@ import crypto from "crypto";
 import prisma from "@/lib/prisma";
 import { hashPassword, validatePasswordStrength } from "@/lib/security/password";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { validateRequest, resetPasswordSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!checkRateLimit(`reset:${ip}`, 10, 15 * 60_000)) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } }, { status: 429 });
   try {
-    const { token, password, confirmPassword } = await req.json();
-    if (typeof token !== "string" || typeof password !== "string" || (confirmPassword !== undefined && confirmPassword !== password)) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid reset request." } }, { status: 400 });
+    const body = await req.json();
+    const validation = await validateRequest(resetPasswordSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { token, password } = validation.data;
     const strength = validatePasswordStrength(password);
     if (!strength.valid) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: strength.errors[0] } }, { status: 400 });
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");

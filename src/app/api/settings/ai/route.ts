@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
+import { validateRequest, aiConfigSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest) {
   try {
@@ -39,9 +40,12 @@ export async function POST(req: NextRequest) {
   try {
     const { tenantId, session } = await requireTenantAccess();
     const body = await req.json();
+    
+    const validation = await validateRequest(aiConfigSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
 
-    let finalApiKey = body.apiKey;
-    if (body.apiKey === "********") {
+    let finalApiKey = validation.data.apiKey;
+    if (validation.data.apiKey === "********") {
       const existing = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiConfig: true } });
       if (existing?.aiConfig) {
         try {
@@ -51,14 +55,14 @@ export async function POST(req: NextRequest) {
     }
 
     const configToSave = {
-      enabled: Boolean(body.enabled),
-      provider: body.provider || "disabled",
-      model: body.model || "llama3.2",
-      baseUrl: body.baseUrl || "http://localhost:11434",
+      enabled: validation.data.enabled,
+      provider: validation.data.provider,
+      model: validation.data.model,
+      baseUrl: validation.data.baseUrl,
       apiKey: finalApiKey || "",
-      systemPrompt: body.systemPrompt || "You are a helpful customer support assistant.",
-      temperature: Number(body.temperature) || 0.7,
-      confidenceThreshold: Number(body.confidenceThreshold) || 0.6,
+      systemPrompt: validation.data.systemPrompt,
+      temperature: validation.data.temperature,
+      confidenceThreshold: validation.data.confidenceThreshold,
     };
 
     const serialized = JSON.stringify(configToSave);

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { hashPublicSessionToken } from "@/lib/services/public/session";
+import { validateRequest, publicMessageSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
@@ -11,11 +12,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { conversationId, sessionToken, userInput } = await req.json();
-
-    if (typeof conversationId !== "string" || typeof sessionToken !== "string" || !userInput || typeof userInput !== "object") {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid message request." } }, { status: 400 });
-    }
+    const body = await req.json();
+    const validation = await validateRequest(publicMessageSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { conversationId, sessionToken, userInput } = validation.data;
 
     const conversation = await prisma.conversation.findFirst({
       where: { id: conversationId, publicSessionTokenHash: hashPublicSessionToken(sessionToken) },
@@ -30,8 +31,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: { code: "BOT_DISABLED", message: "This chatbot is currently unavailable." } }, { status: 403 });
     }
 
-    const value = typeof userInput.value === "string" ? userInput.value.slice(0, 5000) : "";
-    const type = typeof userInput.type === "string" ? userInput.type : "text";
+    const value = userInput.value;
+    const type = userInput.type;
     const nodes = JSON.parse(conversation.flow.publishedNodes || "[]");
     const edges = JSON.parse(conversation.flow.publishedEdges || "[]");
     const engine = new FlowEngine(nodes, edges, conversation.tenantId, conversation.tenant.aiConfig);
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
           content: message.content,
         })),
       },
-      { ...userInput, type, value }
+      { ...userInput, type: type as any, value }
     );
 
     const result = await prisma.$transaction(async (tx) => {

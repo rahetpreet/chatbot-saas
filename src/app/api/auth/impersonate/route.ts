@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { createSession, getPrimarySession, getSession, IMPERSONATION_COOKIE_NAME, invalidateSession, requireSuperAdmin, setSessionCookie } from "@/lib/services/auth/session";
+import { validateRequest, impersonateSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, action } = await req.json();
+    const body = await req.json();
+    const validation = await validateRequest(impersonateSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { tenantId, action } = validation.data;
     if (action === "stop") {
       const primary = await getPrimarySession();
       if (!primary || primary.role !== "SUPER_ADMIN") return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Super Admin access required." } }, { status: 403 });
@@ -15,7 +20,6 @@ export async function POST(req: NextRequest) {
       return response;
     }
     const admin = await requireSuperAdmin();
-    if (typeof tenantId !== "string") return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Tenant ID is required." } }, { status: 400 });
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { users: { where: { role: { in: ["CLIENT_OWNER", "CLIENT_ADMIN"] }, isActive: true }, orderBy: { createdAt: "asc" }, take: 1 } } });
     const target = tenant?.users[0];
     if (!tenant || !target) return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Tenant owner not found." } }, { status: 404 });

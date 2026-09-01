@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { hashPublicSessionToken } from "@/lib/services/public/session";
+import { validateRequest, publicLeadSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
@@ -10,11 +11,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { conversationId, sessionToken, name, email, phone, customFields } = await req.json();
-
-    if (typeof conversationId !== "string" || typeof sessionToken !== "string") {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid session." } }, { status: 400 });
-    }
+    const body = await req.json();
+    const validation = await validateRequest(publicLeadSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { conversationId, sessionToken, name, email, phone, customFields } = validation.data;
 
     const conversation = await prisma.conversation.findFirst({
       where: { id: conversationId, publicSessionTokenHash: hashPublicSessionToken(sessionToken) },
@@ -25,13 +26,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Session not found." } }, { status: 404 });
     }
 
-    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : null;
-    const cleanPhone = typeof phone === "string" ? phone.trim() : null;
-    const cleanName = typeof name === "string" ? name.trim() : null;
-
-    if (!normalizedEmail && !cleanPhone && !cleanName) {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Contact information is required." } }, { status: 400 });
-    }
+    const normalizedEmail = email;
+    const cleanPhone = phone;
+    const cleanName = name;
 
     // Lead capture transaction: find or update contact, create lead, link conversation
     const result = await prisma.$transaction(async (tx) => {

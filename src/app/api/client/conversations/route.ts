@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { ConversationRepository } from "@/lib/repositories/conversationRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
@@ -10,41 +10,11 @@ export async function GET(req: NextRequest) {
     const campaignId = searchParams.get("campaignId");
     const flowId = searchParams.get("flowId");
 
-    const where: Record<string, any> = { tenantId };
-
-    if (status && status !== "ALL") {
-      where.sessionStatus = status;
-    }
-    if (campaignId) {
-      where.campaignContact = { campaignId };
-    }
-    if (flowId) {
-      where.flowId = flowId;
-    }
-
-    const conversations = await prisma.conversation.findMany({
-      where,
-      orderBy: { lastActiveAt: "desc" },
-      take: 100,
-      include: {
-        flow: { select: { id: true, name: true } },
-        campaignContact: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            campaign: { select: { name: true, slug: true } },
-          },
-        },
-        messages: {
-          orderBy: { timestamp: "desc" },
-          take: 1, // Last message preview
-        },
-        _count: {
-          select: { messages: true },
-        },
-      },
+    const conversations = await ConversationRepository.findByTenant(tenantId, {
+      status: status || undefined,
+      campaignId: campaignId || undefined,
+      flowId: flowId || undefined,
+      limit: 100,
     });
 
     return NextResponse.json({ success: true, data: { conversations }, conversations });

@@ -1,20 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { CampaignRepository } from "@/lib/repositories/campaignRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
-import { slugify } from "@/lib/utils";
-import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { validateRequest, createCampaignSchema } from "@/lib/validation";
 
 export async function GET(_req: NextRequest) {
   try {
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
-    const campaigns = await prisma.campaign.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      include: {
-        contacts: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
-        _count: { select: { contacts: true } },
-      },
-    });
+
+    const campaigns = await CampaignRepository.findByTenant(tenantId);
 
     return NextResponse.json({ success: true, data: { campaigns }, campaigns });
   } catch (error: any) {
@@ -25,22 +19,12 @@ export async function GET(_req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
-    await assertUsageAvailable(tenantId, "campaigns");
-
     const body = await req.json();
-    const name = typeof body.name === "string" ? body.name.trim().slice(0, 160) : "";
-    const slug = slugify(typeof body.slug === "string" ? body.slug : name);
-
-    if (!name || !slug) {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Campaign name is required" } }, { status: 400 });
-    }
-
-    if (body.flowId) {
-      const flow = await prisma.flow.findFirst({ where: { id: body.flowId, tenantId, deletedAt: null } });
-      if (!flow) {
-        return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Flow not found" } }, { status: 404 });
-      }
-    }
+    
+    const validation = await validateRequest(createCampaignSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { name, slug, flowId, metadata } = validation.data;
 
     const campaign = await prisma.$transaction(async (tx) => {
       const created = await tx.campaign.create({
@@ -48,8 +32,8 @@ export async function POST(req: NextRequest) {
           tenantId,
           name,
           slug,
-          flowId: typeof body.flowId === "string" ? body.flowId : null,
-          metadata: body.metadata ? JSON.stringify(body.metadata) : null,
+          flowId,
+          metadata: metadata ? JSON.stringify(metadata) : null,
         },
       });
 
@@ -67,10 +51,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: { campaign }, campaign }, { status: 201 });
   } catch (error: any) {
-    const isUnique = error?.code === "P2002";
-    return NextResponse.json(
-      { success: false, error: { code: isUnique ? "VALIDATION_ERROR" : "INVALID_REQUEST", message: isUnique ? "Campaign slug already exists" : error.message || "Failed to create campaign" } },
-      { status: isUnique ? 409 : 500 }
-    );
+    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to create campaign" } }, { status: 400 });
   }
 }

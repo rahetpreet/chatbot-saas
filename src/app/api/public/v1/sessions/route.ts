@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { validateRequest, publicSessionSchema } from "@/lib/validation";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -14,14 +15,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const tenantSlug = typeof body.tenantSlug === "string" ? body.tenantSlug : "";
-    const visitorId = typeof body.visitorId === "string" ? body.visitorId.slice(0, 128) : "";
-    const flowId = typeof body.flowId === "string" ? body.flowId : undefined;
-    const campaignContactId = typeof body.campaignContactId === "string" ? body.campaignContactId : undefined;
-
-    if (!tenantSlug || !visitorId) {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid tenant and visitor identifiers are required." } }, { status: 400 });
-    }
+    const validation = await validateRequest(publicSessionSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { tenantSlug, visitorId, flowId, campaignContactId, referrer } = validation.data;
 
     const tenant = await prisma.tenant.findFirst({
       where: { slug: tenantSlug, status: { in: ["TRIAL", "ACTIVE"] }, deletedAt: null },
@@ -66,7 +63,7 @@ export async function POST(req: NextRequest) {
           currentNodeId: step.currentNodeId,
           collectedData: JSON.stringify(step.updatedCollectedData),
           visitorInfo: JSON.stringify({
-            referrer: typeof body.referrer === "string" ? body.referrer.slice(0, 2048) : null,
+            referrer: referrer || null,
             ip,
             userAgent: req.headers.get("user-agent") || null,
           }),

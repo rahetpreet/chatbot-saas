@@ -55,6 +55,8 @@ model Tenant {
   @@index([slug])
   @@index([status])
   @@index([deletedAt])
+  @@index([planTier])
+  @@index([createdAt])
 }
 
 model User {
@@ -83,6 +85,9 @@ model User {
   @@index([email])
   @@index([isActive])
   @@index([deletedAt])
+  @@index([tenantId, isActive])
+  @@index([tenantId, role])
+  @@index([lastLoginAt])
 }
 
 model Session {
@@ -170,6 +175,8 @@ model Contact {
 
   @@index([tenantId, email])
   @@index([tenantId, phone])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, createdAt])
 }
 
 model Chatbot {
@@ -227,6 +234,9 @@ model Flow {
   @@index([tenantId])
   @@index([status])
   @@index([deletedAt])
+  @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, updatedAt])
 }
 
 model Campaign {
@@ -304,6 +314,10 @@ model Conversation {
   @@index([sessionStatus])
   @@index([visitorId])
   @@index([flowId])
+  @@index([tenantId, sessionStatus])
+  @@index([tenantId, lastActiveAt])
+  @@index([tenantId, startedAt])
+  @@index([publicSessionTokenHash])
 }
 
 model Message {
@@ -320,6 +334,8 @@ model Message {
 
   @@index([conversationId])
   @@index([timestamp])
+  @@index([conversationId, timestamp])
+  @@index([senderType])
 }
 
 model Lead {
@@ -343,6 +359,10 @@ model Lead {
   @@index([tenantId])
   @@index([status])
   @@index([deletedAt])
+  @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, createdAt])
+  @@index([conversationId])
 }
 
 model KnowledgeDoc {
@@ -377,6 +397,10 @@ model AnalyticsEvent {
   @@index([tenantId])
   @@index([eventType])
   @@index([timestamp])
+  @@index([tenantId, eventType])
+  @@index([tenantId, timestamp])
+  @@index([conversationId])
+  @@index([flowId])
 }
 
 model AuditLog {
@@ -394,6 +418,9 @@ model AuditLog {
   @@index([tenantId])
   @@index([userId])
   @@index([timestamp])
+  @@index([tenantId, timestamp])
+  @@index([userId, timestamp])
+  @@index([action])
 }
 
 model DevEmail {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { ContactRepository } from "@/lib/repositories/contactRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
+import { validateRequest, createContactSchema } from "@/lib/validation";
 
 export async function GET(req: NextRequest) {
   try {
@@ -8,20 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search")?.trim().slice(0, 100);
 
-    const where: Record<string, any> = { tenantId, deletedAt: null };
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { company: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    const contacts = await prisma.contact.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
+    const contacts = await ContactRepository.findByTenant(tenantId, { search });
 
     return NextResponse.json({ success: true, data: { contacts }, contacts });
   } catch (error: any) {
@@ -33,27 +21,13 @@ export async function POST(req: NextRequest) {
   try {
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT"]);
     const body = await req.json();
-
-    const name = typeof body.name === "string" ? body.name.trim() : null;
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : null;
-    const phone = typeof body.phone === "string" ? body.phone.trim() : null;
-    const company = typeof body.company === "string" ? body.company.trim() : null;
-    const source = typeof body.source === "string" ? body.source.trim() : "manual";
-
-    if (!name && !email && !phone) {
-      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "At least one identifier (name, email, or phone) is required." } }, { status: 400 });
+    
+    const validation = await validateRequest(createContactSchema, body);
+    if (!validation.success) {
+      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
     }
 
-    const contact = await prisma.contact.create({
-      data: {
-        tenantId,
-        name,
-        email,
-        phone,
-        company,
-        source,
-      },
-    });
+    const contact = await ContactRepository.create(tenantId, validation.data);
 
     return NextResponse.json({ success: true, data: { contact }, contact }, { status: 201 });
   } catch (error: any) {

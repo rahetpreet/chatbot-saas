@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { createSession, getSession, setSessionCookie } from "@/lib/services/auth/session";
 import { hashPassword, validatePasswordStrength, verifyPassword } from "@/lib/security/password";
+import { validateRequest, changePasswordSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
     const auth = await getSession();
     if (!auth) return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: "Authentication required." } }, { status: 401 });
-    const { currentPassword, newPassword, confirmPassword } = await req.json();
-    if (typeof currentPassword !== "string" || typeof newPassword !== "string" || newPassword !== confirmPassword) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Passwords do not match." } }, { status: 400 });
+    const body = await req.json();
+    
+    const validation = await validateRequest(changePasswordSchema, body);
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
+    
+    const { currentPassword, newPassword } = validation.data;
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: strength.errors[0] } }, { status: 400 });
     const user = await prisma.user.findUnique({ where: { id: auth.userId } });

@@ -2,29 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantRole } from "@/lib/services/auth/session";
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
-    const body = await req.json();
-    const { startDate, endDate, status, campaignId, flowId } = body;
+    const { id } = await params;
 
-    // Create export job
-    const exportJob = await prisma.exportJob.create({
-      data: {
-        tenantId,
-        type: "CONVERSATIONS",
-        status: "PENDING",
-        filters: JSON.stringify({ startDate, endDate, status, campaignId, flowId }),
-      },
+    const exportJob = await prisma.exportJob.findFirst({
+      where: { id, tenantId, status: "COMPLETED" },
     });
 
-    // Process export (simplified for MVP - in production would be background job)
+    if (!exportJob) {
+      return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Export not found or not completed" } }, { status: 404 });
+    }
+
+    // Re-generate the export data (in production, this would be stored)
+    const filters = JSON.parse(exportJob.filters || "{}");
     const where: Record<string, any> = { tenantId };
-    if (startDate) where.startedAt = { ...where.startedAt, gte: new Date(startDate) };
-    if (endDate) where.startedAt = { ...where.startedAt, lte: new Date(endDate) };
-    if (status && status !== "ALL") where.sessionStatus = status;
-    if (campaignId) where.campaignContact = { campaignId };
-    if (flowId) where.flowId = flowId;
+    if (filters.startDate) where.startedAt = { ...where.startedAt, gte: new Date(filters.startDate) };
+    if (filters.endDate) where.startedAt = { ...where.startedAt, lte: new Date(filters.endDate) };
+    if (filters.status && filters.status !== "ALL") where.sessionStatus = filters.status;
+    if (filters.campaignId) where.campaignContact = { campaignId: filters.campaignId };
+    if (filters.flowId) where.flowId = filters.flowId;
 
     const conversations = await prisma.conversation.findMany({
       where,
@@ -60,25 +58,13 @@ export async function POST(req: NextRequest) {
 
     const csvContent = [csvHeaders.join(","), ...csvRows.map(row => row.join(","))].join("\n");
 
-    // Update export job as completed
-    await prisma.exportJob.update({
-      where: { id: exportJob.id },
-      data: {
-        status: "COMPLETED",
-        downloadUrl: `/api/client/exports/${exportJob.id}/download`,
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        jobId: exportJob.id,
-        status: "COMPLETED",
-        downloadUrl: `/api/client/exports/${exportJob.id}/download`,
-        recordCount: conversations.length,
+    return new NextResponse(csvContent, {
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="conversations-export-${id}.csv"`,
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to create export" } }, { status: 400 });
+    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to download export" } }, { status: 400 });
   }
 }
