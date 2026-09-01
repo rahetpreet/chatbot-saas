@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,26 +28,30 @@ export async function GET(req: NextRequest) {
 
     let leads: any[] = [];
     try {
-      leads = await prisma.lead.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        include: {
-          conversation: {
-            select: {
-              id: true,
-              sessionStatus: true,
-              startedAt: true,
-              flow: { select: { name: true } },
+      leads = await withDbTimeout<any>(
+        prisma.lead.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          include: {
+            conversation: {
+              select: {
+                id: true,
+                sessionStatus: true,
+                startedAt: true,
+                flow: { select: { name: true } },
+              },
             },
           },
-        },
-      });
+        }),
+        mockStore.leads,
+        600
+      );
     } catch (dbErr) {
       console.warn("Leads GET DB notice (using mockStore):", dbErr);
       leads = mockStore.leads;
     }
 
-    if (leads.length === 0) {
+    if (!leads || leads.length === 0) {
       leads = mockStore.leads;
     }
 

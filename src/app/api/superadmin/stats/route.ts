@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,32 +17,49 @@ export async function GET(req: NextRequest) {
       recentAuditLogs: any[] = [];
 
     try {
-      [
-        totalTenants,
-        activeTenants,
-        totalUsers,
-        totalFlows,
-        totalConversations,
-        totalMessages,
-        totalLeads,
-        recentAuditLogs,
-      ] = await Promise.all([
-        prisma.tenant.count(),
-        prisma.tenant.count({ where: { status: "ACTIVE" } }),
-        prisma.user.count(),
-        prisma.flow.count(),
-        prisma.conversation.count(),
-        prisma.message.count(),
-        prisma.lead.count(),
-        prisma.auditLog.findMany({
-          take: 10,
-          orderBy: { timestamp: "desc" },
-          include: {
-            tenant: { select: { name: true, slug: true } },
-            user: { select: { email: true, name: true } },
-          },
-        }),
-      ]);
+      const dbStats = await withDbTimeout(
+        Promise.all([
+          prisma.tenant.count(),
+          prisma.tenant.count({ where: { status: "ACTIVE" } }),
+          prisma.user.count(),
+          prisma.flow.count(),
+          prisma.conversation.count(),
+          prisma.message.count(),
+          prisma.lead.count(),
+          prisma.auditLog.findMany({
+            take: 10,
+            orderBy: { timestamp: "desc" },
+            include: {
+              tenant: { select: { name: true, slug: true } },
+              user: { select: { email: true, name: true } },
+            },
+          }),
+        ]),
+        null,
+        600
+      );
+
+      if (dbStats) {
+        [
+          totalTenants,
+          activeTenants,
+          totalUsers,
+          totalFlows,
+          totalConversations,
+          totalMessages,
+          totalLeads,
+          recentAuditLogs,
+        ] = dbStats;
+      } else {
+        totalTenants = mockStore.tenants.length;
+        activeTenants = mockStore.tenants.filter((t) => t.status === "ACTIVE").length;
+        totalUsers = mockStore.users.length;
+        totalFlows = mockStore.flows.length;
+        totalConversations = mockStore.conversations.length;
+        totalMessages = mockStore.conversations.reduce((acc, c) => acc + (c.messages?.length || 0), 0);
+        totalLeads = mockStore.leads.length;
+        recentAuditLogs = mockStore.auditLogs;
+      }
     } catch (dbErr) {
       console.warn("DB stats fallback notice:", dbErr);
     }

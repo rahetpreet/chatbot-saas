@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,24 +11,28 @@ export async function GET(req: NextRequest) {
 
     let flows: any[] = [];
     try {
-      flows = await prisma.flow.findMany({
-        where: effectiveTenantId === "SUPER_ADMIN" ? {} : { tenantId: effectiveTenantId },
-        orderBy: { updatedAt: "desc" },
-        include: {
-          _count: {
-            select: {
-              conversations: true,
-              analyticsEvents: true,
+      flows = await withDbTimeout<any>(
+        prisma.flow.findMany({
+          where: effectiveTenantId === "SUPER_ADMIN" ? {} : { tenantId: effectiveTenantId },
+          orderBy: { updatedAt: "desc" },
+          include: {
+            _count: {
+              select: {
+                conversations: true,
+                analyticsEvents: true,
+              },
             },
           },
-        },
-      });
+        }),
+        mockStore.getFlows(effectiveTenantId),
+        600
+      );
     } catch (dbErr) {
       console.warn("Flows GET DB notice (using mockStore):", dbErr);
       flows = mockStore.getFlows(effectiveTenantId);
     }
 
-    if (flows.length === 0) {
+    if (!flows || flows.length === 0) {
       flows = mockStore.getFlows(effectiveTenantId);
     }
 

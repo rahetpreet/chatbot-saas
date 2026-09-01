@@ -5,7 +5,7 @@ import { hashPassword } from "@/lib/services/auth/jwt";
 import { slugify } from "@/lib/utils";
 import { sendAppEmail } from "@/lib/services/email";
 
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,25 +13,33 @@ export async function GET(req: NextRequest) {
 
     let tenants: any[] = [];
     try {
-      tenants = await prisma.tenant.findMany({
-        orderBy: { createdAt: "desc" },
-        include: {
-          _count: {
-            select: {
-              flows: true,
-              conversations: true,
-              leads: true,
-              campaigns: true,
-              users: true,
+      tenants = await withDbTimeout<any>(
+        prisma.tenant.findMany({
+          orderBy: { createdAt: "desc" },
+          include: {
+            _count: {
+              select: {
+                flows: true,
+                conversations: true,
+                leads: true,
+                campaigns: true,
+                users: true,
+              },
+            },
+            users: {
+              select: { id: true, email: true, name: true, role: true, status: true },
             },
           },
-          users: {
-            select: { id: true, email: true, name: true, role: true, status: true },
-          },
-        },
-      });
+        }),
+        mockStore.tenants,
+        600
+      );
     } catch (dbErr) {
       console.warn("Tenants DB query notice (using mockStore):", dbErr);
+      tenants = mockStore.tenants;
+    }
+
+    if (!tenants || tenants.length === 0) {
       tenants = mockStore.tenants;
     }
 

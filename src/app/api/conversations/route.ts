@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,30 +27,34 @@ export async function GET(req: NextRequest) {
 
     let conversations: any[] = [];
     try {
-      conversations = await prisma.conversation.findMany({
-        where,
-        orderBy: { lastActiveAt: "desc" },
-        take: 100,
-        include: {
-          flow: { select: { id: true, name: true } },
-          campaignContact: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              campaign: { select: { name: true, slug: true } },
+      conversations = await withDbTimeout<any>(
+        prisma.conversation.findMany({
+          where,
+          orderBy: { lastActiveAt: "desc" },
+          take: 100,
+          include: {
+            flow: { select: { id: true, name: true } },
+            campaignContact: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                campaign: { select: { name: true, slug: true } },
+              },
+            },
+            messages: {
+              orderBy: { timestamp: "desc" },
+              take: 1, // Last message for preview
+            },
+            _count: {
+              select: { messages: true },
             },
           },
-          messages: {
-            orderBy: { timestamp: "desc" },
-            take: 1, // Last message for preview
-          },
-          _count: {
-            select: { messages: true },
-          },
-        },
-      });
+        }),
+        mockStore.conversations,
+        600
+      );
     } catch (dbErr) {
       console.warn("Conversations GET DB notice (using mockStore):", dbErr);
       conversations = mockStore.conversations;

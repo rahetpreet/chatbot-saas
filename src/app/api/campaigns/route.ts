@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { slugify } from "@/lib/utils";
 
-import mockStore from "@/lib/mockStore";
+import mockStore, { withDbTimeout } from "@/lib/mockStore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,21 +12,25 @@ export async function GET(req: NextRequest) {
 
     let campaigns: any[] = [];
     try {
-      campaigns = await prisma.campaign.findMany({
-        where: { tenantId: effectiveTenantId },
-        orderBy: { createdAt: "desc" },
-        include: {
-          _count: {
-            select: { contacts: true },
+      campaigns = await withDbTimeout<any>(
+        prisma.campaign.findMany({
+          where: { tenantId: effectiveTenantId },
+          orderBy: { createdAt: "desc" },
+          include: {
+            _count: {
+              select: { contacts: true },
+            },
           },
-        },
-      });
+        }),
+        mockStore.campaigns,
+        600
+      );
     } catch (dbErr) {
       console.warn("Campaigns GET DB notice (using mockStore):", dbErr);
       campaigns = mockStore.campaigns;
     }
 
-    if (campaigns.length === 0) {
+    if (!campaigns || campaigns.length === 0) {
       campaigns = mockStore.campaigns;
     }
 
