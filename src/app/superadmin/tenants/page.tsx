@@ -423,7 +423,7 @@ export default function SuperAdminTenantsPage() {
                             variant="outline"
                             onClick={() => openDeleteConfirmation(t)}
                             className="h-7 text-[11px] text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100 p-1.5"
-                            title="Delete Company"
+                            title="Archive Company"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -586,13 +586,14 @@ export default function SuperAdminTenantsPage() {
       <Modal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
-        title="⚠️ Delete Company Workspace"
-        description="Are you sure you want to permanently delete this company?"
+        title="Archive Company Workspace"
+        description="The workspace stops working immediately, but its data is kept."
       >
         <div className="space-y-4 text-xs">
           <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 leading-relaxed">
-            Deleting <span className="font-bold">{selectedTenant?.name}</span> will permanently erase all associated
-            chatbot flows, campaign links, visitor conversations, and leads. This action cannot be undone.
+            <span className="font-bold">{selectedTenant?.name}</span> will be archived: everyone signed out, the
+            chatbot taken offline, and the workspace hidden from this list. Its flows, campaigns, conversations,
+            contacts and leads are retained and can be restored.
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -604,7 +605,7 @@ export default function SuperAdminTenantsPage() {
               loading={isSubmitting}
               className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
             >
-              Permanently Delete
+              Archive Workspace
             </Button>
           </div>
         </div>

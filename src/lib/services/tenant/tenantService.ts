@@ -278,13 +278,75 @@ export class TenantService {
    * when optional product tables have not yet been created in an older
    * installation.
    */
-  static async deleteTenant(tenantId: string, _operatorUserId: string, _ipAddress?: string) {
-    await prisma.$transaction(async (tx) => {
-      const deleted = await tx.tenant.deleteMany({ where: { id: tenantId } });
-      if (deleted.count === 0) {
-        throw new Error("Tenant not found.");
-      }
+  /**
+   * Archives a workspace. This is deliberately a soft delete.
+   *
+   * It used to be `tenant.deleteMany`, which cascaded through users, flows,
+   * campaigns, conversations, contacts, leads and even the audit log, and
+   * wrote no audit record of its own -- so a single mis-click destroyed a
+   * customer's entire history and left nothing behind explaining what
+   * happened. One click should never be able to do that.
+   *
+   * The workspace stops working immediately: it is marked CANCELLED, hidden
+   * from listings by the `deletedAt` filters, and every session is revoked.
+   * The rows remain, so it can be restored.
+   */
+  static async deleteTenant(tenantId: string, operatorUserId: string, ipAddress?: string) {
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, deletedAt: null },
+      select: { id: true, name: true, slug: true },
     });
-    return { success: true, message: "Company workspace permanently deleted from database." };
+    if (!tenant) throw new Error("Tenant not found.");
+
+    await prisma.$transaction([
+      prisma.tenant.update({
+        where: { id: tenantId },
+        data: { deletedAt: new Date(), status: "CANCELLED" },
+      }),
+      // Revoke access straight away; the data staying put must not mean the
+      // workspace stays usable.
+      prisma.session.deleteMany({ where: { tenantId } }),
+      prisma.auditLog.create({
+        data: {
+          tenantId: null, // survives the workspace it describes
+          userId: operatorUserId,
+          action: "TENANT_ARCHIVED",
+          ipAddress: ipAddress || null,
+          details: JSON.stringify({ tenantId, name: tenant.name, slug: tenant.slug }),
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      message: `${tenant.name} has been archived. Its data is retained and can be restored.`,
+    };
+  }
+
+  /** Reverses an archive. */
+  static async restoreTenant(tenantId: string, operatorUserId: string, ipAddress?: string) {
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, deletedAt: { not: null } },
+      select: { id: true, name: true },
+    });
+    if (!tenant) throw new Error("No archived workspace with that id.");
+
+    await prisma.$transaction([
+      prisma.tenant.update({
+        where: { id: tenantId },
+        data: { deletedAt: null, status: "ACTIVE" },
+      }),
+      prisma.auditLog.create({
+        data: {
+          tenantId,
+          userId: operatorUserId,
+          action: "TENANT_RESTORED",
+          ipAddress: ipAddress || null,
+          details: JSON.stringify({ tenantId, name: tenant.name }),
+        },
+      }),
+    ]);
+
+    return { success: true, message: `${tenant.name} has been restored.` };
   }
 }

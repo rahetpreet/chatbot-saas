@@ -448,7 +448,10 @@ model AuditLog {
   ipAddress String?
   timestamp DateTime @default(now())
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// SetNull, not Cascade: an audit trail that is destroyed along with the
+  /// thing it records is not an audit trail. Removing a workspace previously
+  /// deleted every log entry explaining who removed it and why.
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
