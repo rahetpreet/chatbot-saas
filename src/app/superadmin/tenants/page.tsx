@@ -35,6 +35,7 @@ export default function SuperAdminTenantsPage() {
   const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
   const [isQuotasModalOpen, setIsQuotasModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
 
@@ -185,6 +186,7 @@ export default function SuperAdminTenantsPage() {
       }
 
       setIsDeleteModalOpen(false);
+      setDeleteConfirmText("");
       setSelectedTenant(null);
       setTenants((current) => current.filter((tenant) => tenant.id !== selectedTenant.id));
       await fetchTenants();
@@ -423,7 +425,7 @@ export default function SuperAdminTenantsPage() {
                             variant="outline"
                             onClick={() => openDeleteConfirmation(t)}
                             className="h-7 text-[11px] text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100 p-1.5"
-                            title="Archive Company"
+                            title="Delete Company"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -585,27 +587,52 @@ export default function SuperAdminTenantsPage() {
       {/* Delete Confirmation Modal */}
       <Modal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        title="Archive Company Workspace"
-        description="The workspace stops working immediately, but its data is kept."
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setDeleteConfirmText("");
+        }}
+        title="⚠️ Delete Company Workspace"
+        description="This permanently removes the company and everything in it."
       >
         <div className="space-y-4 text-xs">
           <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 leading-relaxed">
-            <span className="font-bold">{selectedTenant?.name}</span> will be archived: everyone signed out, the
-            chatbot taken offline, and the workspace hidden from this list. Its flows, campaigns, conversations,
-            contacts and leads are retained and can be restored.
+            Deleting <span className="font-bold">{selectedTenant?.name}</span> permanently erases its logins, chatbot
+            flows, campaigns, tracking links, conversations, contacts and leads. This cannot be undone, and support
+            cannot recover it.
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1.5">
+              Type <span className="font-mono font-bold text-slate-900">{selectedTenant?.name}</span> to confirm
+            </label>
+            <input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={selectedTenant?.name || ""}
+              autoComplete="off"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setDeleteConfirmText("");
+              }}
+            >
               Cancel
             </Button>
             <Button
               onClick={handleDeleteTenant}
               loading={isSubmitting}
-              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              // Deliberate friction: this is irreversible, and it previously
+              // fired on a single click.
+              disabled={deleteConfirmText.trim() !== (selectedTenant?.name || "").trim()}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Archive Workspace
+              Permanently Delete
             </Button>
           </div>
         </div>

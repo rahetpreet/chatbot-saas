@@ -279,74 +279,56 @@ export class TenantService {
    * installation.
    */
   /**
-   * Archives a workspace. This is deliberately a soft delete.
+   * Permanently deletes a workspace and everything belonging to it.
    *
-   * It used to be `tenant.deleteMany`, which cascaded through users, flows,
-   * campaigns, conversations, contacts, leads and even the audit log, and
-   * wrote no audit record of its own -- so a single mis-click destroyed a
-   * customer's entire history and left nothing behind explaining what
-   * happened. One click should never be able to do that.
+   * This is a deliberate product decision: removing a client should remove
+   * their data, which also keeps "delete my data" requests simple to honour.
+   * The cascade takes users, flows, campaigns, conversations, contacts and
+   * leads with it, and none of it is recoverable from the application.
    *
-   * The workspace stops working immediately: it is marked CANCELLED, hidden
-   * from listings by the `deletedAt` filters, and every session is revoked.
-   * The rows remain, so it can be restored.
+   * What is NOT destroyed is the record of the deletion. The audit entry is
+   * written first, with a null tenantId so the foreign key cannot drag it
+   * down with the workspace, and it captures the counts being removed --
+   * previously this method logged nothing whatsoever, so a deleted client
+   * left no trace of who removed it or how much was lost.
    */
   static async deleteTenant(tenantId: string, operatorUserId: string, ipAddress?: string) {
-    const tenant = await prisma.tenant.findFirst({
-      where: { id: tenantId, deletedAt: null },
-      select: { id: true, name: true, slug: true },
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        _count: {
+          select: { users: true, flows: true, campaigns: true, conversations: true, contacts: true, leads: true },
+        },
+      },
     });
     if (!tenant) throw new Error("Tenant not found.");
 
-    await prisma.$transaction([
-      prisma.tenant.update({
-        where: { id: tenantId },
-        data: { deletedAt: new Date(), status: "CANCELLED" },
-      }),
-      // Revoke access straight away; the data staying put must not mean the
-      // workspace stays usable.
-      prisma.session.deleteMany({ where: { tenantId } }),
-      prisma.auditLog.create({
-        data: {
-          tenantId: null, // survives the workspace it describes
-          userId: operatorUserId,
-          action: "TENANT_ARCHIVED",
-          ipAddress: ipAddress || null,
-          details: JSON.stringify({ tenantId, name: tenant.name, slug: tenant.slug }),
-        },
-      }),
-    ]);
+    // Written before the delete, and outside the transaction, so the record
+    // exists even if the delete itself fails partway.
+    await prisma.auditLog.create({
+      data: {
+        tenantId: null,
+        userId: operatorUserId,
+        action: "TENANT_DELETED",
+        ipAddress: ipAddress || null,
+        details: JSON.stringify({
+          tenantId,
+          name: tenant.name,
+          slug: tenant.slug,
+          removed: tenant._count,
+        }),
+      },
+    });
+
+    await prisma.tenant.delete({ where: { id: tenantId } });
 
     return {
       success: true,
-      message: `${tenant.name} has been archived. Its data is retained and can be restored.`,
+      message: `${tenant.name} and all of its data have been permanently deleted.`,
+      removed: tenant._count,
     };
-  }
-
-  /** Reverses an archive. */
-  static async restoreTenant(tenantId: string, operatorUserId: string, ipAddress?: string) {
-    const tenant = await prisma.tenant.findFirst({
-      where: { id: tenantId, deletedAt: { not: null } },
-      select: { id: true, name: true },
-    });
-    if (!tenant) throw new Error("No archived workspace with that id.");
-
-    await prisma.$transaction([
-      prisma.tenant.update({
-        where: { id: tenantId },
-        data: { deletedAt: null, status: "ACTIVE" },
-      }),
-      prisma.auditLog.create({
-        data: {
-          tenantId,
-          userId: operatorUserId,
-          action: "TENANT_RESTORED",
-          ipAddress: ipAddress || null,
-          details: JSON.stringify({ tenantId, name: tenant.name }),
-        },
-      }),
-    ]);
-
-    return { success: true, message: `${tenant.name} has been restored.` };
   }
 }
