@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { FlowRepository } from "@/lib/repositories/flowRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
 import { validateRequest, createFlowSchema } from "@/lib/validation";
+import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
     
     const validation = await validateRequest(createFlowSchema, body);
     if (!validation.success) return NextResponse.json({ error: validation.error }, { status: 400 });
+    await assertUsageAvailable(tenantId, "flows");
     
     const { name, description, nodes, edges } = validation.data;
 

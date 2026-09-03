@@ -9,7 +9,7 @@
     "dev": "next dev --webpack",
     "build": "prisma generate && node --require ./patch-node24.cjs ./node_modules/next/dist/bin/next build --webpack",
     "start": "next start",
-    "test": "npx tsx tests/spec-verification.test.mjs",
+    "test": "node --test tests/",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate"
@@ -43,6 +43,10 @@
     "postcss": "^8.5.2",
     "prisma": "^6.4.1",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

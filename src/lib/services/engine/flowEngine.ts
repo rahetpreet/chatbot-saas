@@ -192,6 +192,16 @@ export class FlowEngine {
         currNode = next;
       } else if (nodeType === "attachment") {
         const fileData = userInput.value;
+        if (!fileData || typeof fileData !== "object" || typeof fileData.url !== "string") {
+          return {
+            botMessages: [{ text: "Please upload a valid file to continue." }],
+            interactiveNode: currNode,
+            sessionStatus: currentStatus,
+            updatedCollectedData: collected,
+            currentNodeId: currNode.id,
+            error: "Validation failed: attachment is required.",
+          };
+        }
         const key = currNode.data.inputKey || "attachment";
         collected[key] = fileData;
         currNode = this.getNextNode(currNode.id);

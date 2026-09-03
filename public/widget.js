@@ -526,8 +526,9 @@
     try {
       const res = await fetch(`${baseUrl}/api/widget/config?tenantSlug=${tenantSlug}`);
       const data = await res.json();
-      if (data.success && data.widget) {
-        widgetConfig = data.widget;
+      const widget = data.widget || data.data?.widget;
+      if (data.success && widget) {
+        widgetConfig = widget;
         hostElement.style.setProperty("--primary-color", widgetConfig.primaryColor || "#4f46e5");
         botAvatar.src = widgetConfig.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=" + tenantSlug;
         botName.textContent = widgetConfig.botName || "Assistant";

@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
 function cors(response: NextResponse, origin: string | null, allowedDomains: string[]) {
-  if (origin && allowedDomains.some((domain) => domain === new URL(origin).hostname)) response.headers.set("Access-Control-Allow-Origin", origin);
+  if (allowedDomains.length === 0) {
+    response.headers.set("Access-Control-Allow-Origin", "*");
+  } else if (origin && allowedDomains.some((domain) => domain === new URL(origin).hostname)) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+  }
   response.headers.set("Vary", "Origin");
   response.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   return response;
@@ -17,8 +21,9 @@ export async function GET(req: NextRequest) {
   try { settings = JSON.parse(tenant.widgetSettings || "{}"); } catch { /* use safe defaults */ }
   const allowedDomains = Array.isArray(settings.allowedDomains) ? settings.allowedDomains.filter((item): item is string => typeof item === "string") : [];
   const origin = req.headers.get("origin");
-  if (origin && !allowedDomains.includes(new URL(origin).hostname)) return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Origin is not allowed." } }, { status: 403 });
-  return cors(NextResponse.json({ success: true, data: { tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug }, widget: settings, activeFlow: tenant.flows[0] } }), origin, allowedDomains);
+  if (origin && allowedDomains.length > 0 && !allowedDomains.includes(new URL(origin).hostname)) return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Origin is not allowed." } }, { status: 403 });
+  const data = { tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug }, widget: settings, activeFlow: tenant.flows[0] };
+  return cors(NextResponse.json({ success: true, ...data, data }), origin, allowedDomains);
 }
 
 export function OPTIONS(req: NextRequest) { return cors(new NextResponse(null, { status: 204 }), req.headers.get("origin"), []); }

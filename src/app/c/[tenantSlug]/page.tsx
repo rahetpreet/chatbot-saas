@@ -5,11 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { Bot, User, Send, Paperclip, Sparkles, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
+function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: string; initialFlowId?: string }) {
   const searchParams = useSearchParams();
   const campaignSlug = searchParams.get("campaign") || "";
   const contactSlug = searchParams.get("contact") || "";
-  const flowParam = searchParams.get("flow") || searchParams.get("flowId") || "";
+  const flowParam = searchParams.get("flow") || searchParams.get("flowId") || initialFlowId || "";
 
   const [widgetConfig, setWidgetConfig] = useState<any>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -41,8 +41,9 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
       // 1. Fetch tenant widget configuration
       const configRes = await fetch(`/api/widget/config?tenantSlug=${tenantSlug}`);
       const configData = await configRes.json();
-      if (configData.success && configData.widget) {
-        setWidgetConfig(configData.widget);
+      const widget = configData.widget || configData.data?.widget;
+      if (configData.success && widget) {
+        setWidgetConfig(widget);
       }
 
       // 2. Generate or fetch visitor UUID
@@ -367,11 +368,15 @@ function CampaignChatContainer({ tenantSlug }: { tenantSlug: string }) {
   );
 }
 
-export default function CampaignChatPage({ params }: { params: Promise<{ tenantSlug: string }> }) {
-  const resolvedParams = use(params);
+function CampaignChatContent({ tenantSlug, initialFlowId }: { tenantSlug: string; initialFlowId?: string }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-900" />}>
-      <CampaignChatContainer tenantSlug={resolvedParams.tenantSlug} />
+      <CampaignChatContainer tenantSlug={tenantSlug} initialFlowId={initialFlowId} />
     </Suspense>
   );
+}
+
+export default function CampaignChatPage({ params }: { params: Promise<{ tenantSlug: string }> }) {
+  const resolvedParams = use(params);
+  return <CampaignChatContent tenantSlug={resolvedParams.tenantSlug} />;
 }

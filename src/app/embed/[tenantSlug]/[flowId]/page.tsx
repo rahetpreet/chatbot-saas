@@ -1,7 +1,6 @@
 "use client";
 
 import React, { use } from "react";
-import CampaignChatPage from "@/app/c/[tenantSlug]/page";
 
 export default function EmbedFlowPage({
   params,
@@ -10,5 +9,6 @@ export default function EmbedFlowPage({
 }) {
   const resolvedParams = use(params);
 
-  return <CampaignChatPage params={Promise.resolve({ tenantSlug: resolvedParams.tenantSlug })} />;
+  const source = `/c/${encodeURIComponent(resolvedParams.tenantSlug)}?flowId=${encodeURIComponent(resolvedParams.flowId)}`;
+  return <iframe title="Chatbot" src={source} className="h-screen w-full border-0" />;
 }

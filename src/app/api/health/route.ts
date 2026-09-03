@@ -1,28 +1,34 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireSuperAdmin } from "@/lib/services/auth/session";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Liveness probe. Deliberately unauthenticated: this endpoint has to answer
+ * precisely when auth is the thing that is broken. It reports reachability
+ * only and never leaks row counts, schema details or error internals.
+ */
 export async function GET() {
+  const startedAt = Date.now();
   try {
-    await requireSuperAdmin();
-    const userCount = await prisma.user.count();
-    const tenantCount = await prisma.tenant.count();
-
+    await prisma.$queryRaw`SELECT 1`;
     return NextResponse.json({
-      status: "OK",
-      database: "CONNECTED",
-      userCount,
-      tenantCount,
-      timestamp: new Date().toISOString()
+      status: "ok",
+      database: "connected",
+      latencyMs: Date.now() - startedAt,
+      timestamp: new Date().toISOString(),
     });
-  } catch (error: any) {
-    return NextResponse.json({
-      status: "ERROR",
-      database: "DISCONNECTED",
-      errorMessage: error?.message || error?.toString(),
-      timestamp: new Date().toISOString()
-    }, { status: 500 });
+  } catch (error) {
+    // Log the real cause server-side; return an opaque failure to the caller.
+    console.error("[health] database unreachable:", error);
+    return NextResponse.json(
+      {
+        status: "error",
+        database: "unreachable",
+        latencyMs: Date.now() - startedAt,
+        timestamp: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
   }
 }

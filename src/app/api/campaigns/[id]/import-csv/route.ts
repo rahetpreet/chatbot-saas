@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantRole } from "@/lib/services/auth/session";
 import Papa from "papaparse";
 import { slugify, generateRandomId } from "@/lib/utils";
+import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const rows = parsed.data as Array<Record<string, string>>;
     if (rows.length > 2_000) return NextResponse.json({ error: "CSV import is limited to 2,000 rows" }, { status: 400 });
+    await assertUsageAvailable(tenantId, "campaigns", rows.length);
     const createdContacts = [];
 
     for (let i = 0; i < rows.length; i++) {

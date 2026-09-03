@@ -90,7 +90,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const result = await TenantService.deleteTenant(id, superAdmin.userId, ipAddress);
 
-    return NextResponse.json(result);
+    return NextResponse.json({ success: true, message: "Company workspace deleted successfully" });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to delete company workspace" } }, { status: 500 });
   }

@@ -51,7 +51,20 @@ export async function POST(req: NextRequest) {
       ipAddress,
     });
 
-    return NextResponse.json(result, { status: 201 });
+    // Return the result with credentials prominently displayed
+    return NextResponse.json({
+      success: true,
+      message: "Company workspace created successfully",
+      tenant: result.tenant,
+      // IMPORTANT: Credentials are only shown once - save them now
+      credentials: {
+        email: result.credentials.email,
+        temporaryPassword: result.credentials.temporaryPassword,
+        slug: result.credentials.slug,
+        loginUrl: result.credentials.loginUrl,
+      },
+      warning: "IMPORTANT: Save this password now. It will not be shown again."
+    }, { status: 201 });
   } catch (error: any) {
     console.error("Admin create tenant error:", error);
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to create company workspace" } }, { status: 400 });

@@ -52,7 +52,8 @@ export async function assertTenantFeature(tenantId: string, featureKey: string):
 
 export async function assertUsageAvailable(
   tenantId: string,
-  metric: "flows" | "campaigns" | "messages" | "storage"
+  metric: "flows" | "campaigns" | "messages" | "storage",
+  additionalQuantity = 1,
 ): Promise<{ allowed: boolean; current: number; limit: number }> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
@@ -67,6 +68,7 @@ export async function assertUsageAvailable(
         select: {
           flows: { where: { deletedAt: null } },
           campaigns: { where: { deletedAt: null } },
+          campaignContacts: { where: { deletedAt: null } },
           conversations: true,
         },
       },
@@ -90,7 +92,8 @@ export async function assertUsageAvailable(
       limit = tenant.maxFlows;
       break;
     case "campaigns":
-      current = tenant._count.campaigns;
+      // maxCampaignLinks limits personalized contact links, not campaign shells.
+      current = tenant._count.campaignContacts;
       limit = tenant.maxCampaignLinks;
       break;
     case "messages":
@@ -109,14 +112,16 @@ export async function assertUsageAvailable(
         where: { tenantId },
         _sum: { sizeBytes: true },
       });
-      current = Math.round((attachmentBytes._sum.sizeBytes || 0) / (1024 * 1024));
+      current = attachmentBytes._sum.sizeBytes || 0;
       limit = tenant.maxStorageMb;
       break;
   }
 
-  if (current >= limit) {
-    throw new Error(`Usage limit exceeded for ${metric}: ${current}/${limit}. Please upgrade your workspace plan.`);
+  const normalizedLimit = metric === "storage" ? limit * 1024 * 1024 : limit;
+  if (current + Math.max(0, additionalQuantity) > normalizedLimit) {
+    const displayCurrent = metric === "storage" ? Math.ceil(current / (1024 * 1024)) : current;
+    throw new Error(`Usage limit exceeded for ${metric}: ${displayCurrent}/${limit}. Please upgrade your workspace plan.`);
   }
 
-  return { allowed: true, current, limit };
+  return { allowed: true, current: metric === "storage" ? Math.ceil(current / (1024 * 1024)) : current, limit };
 }

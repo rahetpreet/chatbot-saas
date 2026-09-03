@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!checkRateLimit(`public-session:${ip}`, 30, 60_000)) {
     return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } }, { status: 429 });
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         aiConfig: true,
+        widgetSettings: true,
         flows: {
           where: flowId
             ? { id: flowId, status: "PUBLISHED", deletedAt: null }
@@ -40,6 +44,10 @@ export async function POST(req: NextRequest) {
     const flow = tenant?.flows[0];
     if (!tenant || !flow) {
       return NextResponse.json({ success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is unavailable." } }, { status: 404 });
+    }
+    const allowedDomains = parseAllowedDomains(tenant.widgetSettings);
+    if (!isAllowedPublicOrigin(origin, allowedDomains)) {
+      return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Origin is not allowed." } }, { status: 403 });
     }
 
     let campaignContactId: string | null = null;
@@ -73,6 +81,7 @@ export async function POST(req: NextRequest) {
       sessionStatus: "ACTIVE",
       history: [],
     });
+    await assertUsageAvailable(tenant.id, "messages", step.botMessages.length);
 
     const conversation = await prisma.$transaction(async (tx) => {
       const created = await tx.conversation.create({
@@ -129,8 +138,12 @@ export async function POST(req: NextRequest) {
       interactiveNode: step.interactiveNode,
     };
 
-    return NextResponse.json({ success: true, ...data, data });
+    return withPublicCors(NextResponse.json({ success: true, ...data, data }), origin, allowedDomains);
   } catch {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: "Unable to start a chat session." } }, { status: 400 });
   }
+}
+
+export function OPTIONS(req: NextRequest) {
+  return publicCorsPreflight(req.headers.get("origin"));
 }
