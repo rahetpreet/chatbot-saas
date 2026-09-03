@@ -254,6 +254,7 @@ model Campaign {
 
   tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   contacts         CampaignContact[]
+  conversations    Conversation[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -293,6 +294,7 @@ model Conversation {
   tenantId          String
   flowId            String?
   campaignContactId String?
+  campaignId        String?
   visitorId         String
   publicSessionTokenHash String? @unique
   sessionStatus     String    @default("ACTIVE") // ACTIVE, HANDOVER, RESOLVED, ABANDONED
@@ -306,6 +308,7 @@ model Conversation {
   tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   flow              Flow?             @relation(fields: [flowId], references: [id], onDelete: SetNull)
   campaignContact   CampaignContact?  @relation(fields: [campaignContactId], references: [id], onDelete: SetNull)
+  campaign          Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   messages          Message[]
   leads             Lead[]
   analyticsEvents   AnalyticsEvent[]
@@ -318,6 +321,7 @@ model Conversation {
   @@index([tenantId, lastActiveAt])
   @@index([tenantId, startedAt])
   @@index([publicSessionTokenHash])
+  @@index([campaignId])
 }
 
 model Message {
@@ -510,3 +514,15 @@ model ExportJob {
   @@index([tenantId])
 }
 
+
+/// Shared rate-limit counters. Vercel gives each lambda its own memory, so an
+/// in-process Map provided no real protection: the effective limit was the
+/// configured limit multiplied by the number of live instances.
+model RateLimitCounter {
+  key         String   @id
+  windowStart DateTime @default(now())
+  count       Int      @default(0)
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+}

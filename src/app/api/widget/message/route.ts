@@ -11,7 +11,7 @@ import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPu
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-message:${ip}`, 60, 60_000)) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many messages." } }, { status: 429 });
+  if (!(await checkRateLimit(`public-message:${ip}`, 60, 60_000))) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many messages." } }, { status: 429 });
   try {
     const { conversationId, sessionToken, userInput } = await req.json();
     if (typeof conversationId !== "string" || typeof sessionToken !== "string" || !userInput || typeof userInput !== "object") return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid message request." } }, { status: 400 });

@@ -8,7 +8,7 @@ import { isAllowedPublicOrigin, parseAllowedDomains, withPublicCors } from "@/li
 export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-sync:${ip}`, 60, 60_000)) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  if (!(await checkRateLimit(`public-sync:${ip}`, 60, 60_000))) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const { searchParams } = new URL(req.url);
   const conversation = await getPublicConversation(searchParams.get("conversationId"), searchParams.get("sessionToken"));
   if (!conversation) return NextResponse.json({ error: "Chat session not found" }, { status: 404 });

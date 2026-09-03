@@ -8,7 +8,7 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "ap
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-upload:${ip}`, 10, 15 * 60_000)) {
+  if (!(await checkRateLimit(`public-upload:${ip}`, 10, 15 * 60_000))) {
     return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many upload requests" } }, { status: 429 });
   }
 

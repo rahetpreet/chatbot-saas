@@ -81,6 +81,15 @@ export class SMTPProvider implements EmailProvider {
   }
 }
 
+function buildFromAddress(): string | undefined {
+  const explicit = process.env.SMTP_FROM;
+  if (explicit) return explicit;
+  const address = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+  if (!address) return undefined;
+  const name = process.env.SMTP_FROM_NAME;
+  return name ? `"${name.replace(/"/g, "")}" <${address}>` : address;
+}
+
 export function getEmailProvider(customSmtpConfig?: CustomSmtpConfig | null): EmailProvider {
   // If custom SMTP config is provided and configured with host, use SMTP
   if (customSmtpConfig && customSmtpConfig.host && customSmtpConfig.user) {
@@ -95,7 +104,10 @@ export function getEmailProvider(customSmtpConfig?: CustomSmtpConfig | null): Em
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASSWORD || "",
       secure: process.env.SMTP_PORT === "465",
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      // .env.example and the Vercel project both define SMTP_FROM_EMAIL /
+      // SMTP_FROM_NAME; only SMTP_FROM was read, so the configured sender
+      // identity was silently ignored.
+      from: buildFromAddress() || "",
     });
   }
 

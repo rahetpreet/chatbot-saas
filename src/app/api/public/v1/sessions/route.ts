@@ -9,7 +9,7 @@ const hash = (value: string) => crypto.createHash("sha256").update(value).digest
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-session:${ip}`, 30, 60_000)) {
+  if (!(await checkRateLimit(`public-session:${ip}`, 30, 60_000))) {
     return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests. Please slow down." } }, { status: 429 });
   }
 

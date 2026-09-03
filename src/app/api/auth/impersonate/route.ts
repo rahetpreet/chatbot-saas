@@ -14,12 +14,24 @@ export async function POST(req: NextRequest) {
       const primary = await getPrimarySession();
       if (!primary || primary.role !== "SUPER_ADMIN") return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Super Admin access required." } }, { status: 403 });
       const current = await getSession();
-      if (current?.sessionId && current.impersonatingFrom) await invalidateSession(current.sessionId);
+      if (current?.sessionId && current.impersonatingFrom) {
+        await invalidateSession(current.sessionId);
+        await prisma.auditLog.create({
+          data: {
+            tenantId: current.tenantId,
+            userId: primary.userId,
+            action: "IMPERSONATION_ENDED",
+            ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+            details: JSON.stringify({ impersonatedUserId: current.userId }),
+          },
+        });
+      }
       const response = NextResponse.json({ success: true, data: { message: "Impersonation ended." } });
       response.cookies.set(IMPERSONATION_COOKIE_NAME, "", { httpOnly: true, path: "/", maxAge: 0 });
       return response;
     }
     const admin = await requireSuperAdmin();
+    if (!tenantId) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "tenantId is required." } }, { status: 400 });
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { users: { where: { role: { in: ["CLIENT_OWNER", "CLIENT_ADMIN"] }, isActive: true }, orderBy: { createdAt: "asc" }, take: 1 } } });
     const target = tenant?.users[0];
     if (!tenant || !target) return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Tenant owner not found." } }, { status: 404 });

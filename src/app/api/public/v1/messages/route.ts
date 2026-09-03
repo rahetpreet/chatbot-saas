@@ -7,7 +7,7 @@ import { validateRequest, publicMessageSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-message:${ip}`, 60, 60_000)) {
+  if (!(await checkRateLimit(`public-message:${ip}`, 60, 60_000))) {
     return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many messages. Please slow down." } }, { status: 429 });
   }
 

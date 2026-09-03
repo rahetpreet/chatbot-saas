@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStorageProvider } from "@/lib/services/storage";
+import { getStorageProvider, StorageNotConfiguredError } from "@/lib/services/storage";
 import { getPublicConversation } from "@/lib/services/public/session";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import prisma from "@/lib/prisma";
@@ -11,7 +11,7 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "ap
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!checkRateLimit(`public-upload:${ip}`, 10, 15 * 60_000)) return NextResponse.json({ error: "Too many upload requests" }, { status: 429 });
+  if (!(await checkRateLimit(`public-upload:${ip}`, 10, 15 * 60_000))) return NextResponse.json({ error: "Too many upload requests" }, { status: 429 });
   try {
     const formData = await req.formData();
     const file = formData.get("file");
@@ -26,8 +26,20 @@ export async function POST(req: NextRequest) {
     const storedFile = await getStorageProvider().uploadFile({ tenantId: conversation.tenantId, category: "attachments", buffer: Buffer.from(await file.arrayBuffer()), originalName: file.name, mimeType: file.type });
     const attachment = await prisma.attachment.create({ data: { tenantId: conversation.tenantId, conversationId: conversation.id, storageKey: storedFile.storedPath, originalFilename: storedFile.originalName, mimeType: storedFile.mimeType, sizeBytes: storedFile.size } });
     return withPublicCors(NextResponse.json({ success: true, file: { id: attachment.id, url: storedFile.url, name: storedFile.originalName, size: storedFile.size, type: storedFile.mimeType } }), origin, allowedDomains);
-  } catch {
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  } catch (error) {
+    if (error instanceof StorageNotConfiguredError) {
+      // A deployment without durable storage should say so plainly rather
+      // than returning an opaque 500 on every attachment.
+      return NextResponse.json(
+        { success: false, error: { code: "STORAGE_NOT_CONFIGURED", message: "File uploads are not available." } },
+        { status: 503 },
+      );
+    }
+    console.error("[widget/upload] upload failed:", error);
+    return NextResponse.json(
+      { success: false, error: { code: "UPLOAD_FAILED", message: "Upload failed." } },
+      { status: 500 },
+    );
   }
 }
 

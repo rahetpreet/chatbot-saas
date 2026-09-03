@@ -8,8 +8,31 @@
 
   // Retrieve configuration from script tag dataset
   const currentScript = document.currentScript || document.querySelector("script[data-tenant-id], script[data-tenant-slug]");
-  const tenantSlug = currentScript?.getAttribute("data-tenant-slug") || currentScript?.getAttribute("data-tenant-id") || "acme-corp";
+  const tenantSlug = currentScript?.getAttribute("data-tenant-slug") || currentScript?.getAttribute("data-tenant-id");
   const customFlowId = currentScript?.getAttribute("data-flow-id") || null;
+
+  // Never fall back to a hard-coded tenant: a misconfigured snippet would
+  // silently open a conversation against somebody else's workspace.
+  if (!tenantSlug) {
+    console.error("[chatbot-widget] Missing data-tenant-slug on the embed script; widget not started.");
+    return;
+  }
+
+  // Campaign attribution comes from the embed attribute when present, and
+  // otherwise from the host page URL, so campaign landing pages attribute
+  // without needing a bespoke snippet.
+  const pageParams = new URLSearchParams(window.location.search);
+  const campaignSlug =
+    currentScript?.getAttribute("data-campaign") || pageParams.get("campaign") || undefined;
+  const contactSlug =
+    currentScript?.getAttribute("data-contact") || pageParams.get("contact") || undefined;
+  const utm = {
+    utmSource: pageParams.get("utm_source") || undefined,
+    utmMedium: pageParams.get("utm_medium") || undefined,
+    utmCampaign: pageParams.get("utm_campaign") || undefined,
+    utmContent: pageParams.get("utm_content") || undefined,
+    utmTerm: pageParams.get("utm_term") || undefined,
+  };
   const baseUrl = currentScript?.src ? new URL(currentScript.src).origin : window.location.origin;
 
   // Persistent Visitor UUID in LocalStorage
@@ -465,6 +488,9 @@
           tenantSlug,
           visitorId,
           flowId: customFlowId,
+          campaignSlug,
+          contactSlug,
+          utm,
           referrer: document.referrer,
           device: window.innerWidth < 768 ? "mobile" : "desktop",
         }),

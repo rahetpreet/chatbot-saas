@@ -83,6 +83,7 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [publishErrors, setPublishErrors] = useState<string[] | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
@@ -298,13 +299,21 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
 
       const data = await res.json();
       if (data.success) {
+        setPublishErrors(null);
         setFlowStatus("PUBLISHED");
         setFlowVersion(data.flow.version);
         setSaveSuccessMsg(`Published Version ${data.flow.version} is now live on your widget!`);
         setTimeout(() => setSaveSuccessMsg(null), 4000);
+      } else {
+        // The API returns per-node reasons in `details`; showing only
+        // "publish failed" left the user with nothing to act on.
+        const details: string[] = Array.isArray(data.details) && data.details.length
+          ? data.details
+          : [data.error?.message || data.error || "Publish failed."];
+        setPublishErrors(details);
       }
     } catch {
-      alert("Failed to publish flow.");
+      setPublishErrors(["Could not reach the server. Please check your connection and try again."]);
     } finally {
       setPublishing(false);
     }
@@ -323,6 +332,21 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
             <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-fade-in">
               {saveSuccessMsg}
             </span>
+          )}
+          {publishErrors && (
+            <div className="relative group">
+              <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200 cursor-help">
+                Publish blocked ({publishErrors.length})
+              </span>
+              <div className="absolute left-0 top-full mt-1 hidden group-hover:block z-50 w-80 bg-white border border-red-200 rounded-lg shadow-lg p-3">
+                <p className="text-xs font-semibold text-red-700 mb-1">Fix these before publishing:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {publishErrors.map((detail, i) => (
+                    <li key={i} className="text-xs text-slate-700">{detail}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
           )}
         </div>
 

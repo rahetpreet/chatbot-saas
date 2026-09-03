@@ -9,7 +9,7 @@ const invalidCredentials = { success: false, error: { code: "INVALID_CREDENTIALS
 
 export async function POST(req: NextRequest) {
   const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
-  if (!checkRateLimit(`login:${ipAddress}`, 10, 15 * 60_000)) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." } }, { status: 429 });
+  if (!(await checkRateLimit(`login:${ipAddress}`, 10, 15 * 60_000))) return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." } }, { status: 429 });
   try {
     const body = await req.json();
     const validation = await validateRequest(loginSchema, body);

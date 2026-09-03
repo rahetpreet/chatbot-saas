@@ -23,6 +23,23 @@ function toPayload(session: any): JWTPayload {
   };
 }
 
+/**
+ * last_seen_at is presence telemetry, not authorization state. Writing it on
+ * every authenticated request cost a database round-trip per API call, and a
+ * failure (such as racing a logout that removed the row) rejected the entire
+ * request. It is now throttled and best-effort.
+ */
+const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
+
+async function touchLastSeen(sessionId: string, lastSeenAt: Date | null) {
+  if (lastSeenAt && Date.now() - lastSeenAt.getTime() < LAST_SEEN_THROTTLE_MS) return;
+  try {
+    await prisma.session.updateMany({ where: { id: sessionId }, data: { lastSeenAt: new Date() } });
+  } catch (error) {
+    console.warn("[session] could not update lastSeenAt:", error);
+  }
+}
+
 async function getSessionForCookie(cookieName: string): Promise<JWTPayload | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(cookieName)?.value;
@@ -35,8 +52,7 @@ async function getSessionForCookie(cookieName: string): Promise<JWTPayload | nul
     return null;
   }
   if (session.tenant && !["TRIAL", "ACTIVE"].includes(session.tenant.status)) return null;
-  // Fire-and-forget would hide database failures; last-seen is non-critical.
-  await prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } });
+  await touchLastSeen(session.id, session.lastSeenAt);
   return toPayload(session);
 }
 

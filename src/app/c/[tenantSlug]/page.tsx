@@ -20,6 +20,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [fatalError, setFatalError] = useState<{ code: string; message: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +38,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
 
   const initializeChat = async () => {
     setIsInitializing(true);
+    setFatalError(null);
     try {
       // 1. Fetch tenant widget configuration
       const configRes = await fetch(`/api/widget/config?tenantSlug=${tenantSlug}`);
@@ -66,10 +68,24 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
           referrer: document.referrer,
           device: window.innerWidth < 768 ? "mobile" : "desktop",
           flowId: flowParam || undefined,
+          utm: {
+            utmSource: searchParams.get("utm_source") || undefined,
+            utmMedium: searchParams.get("utm_medium") || undefined,
+            utmCampaign: searchParams.get("utm_campaign") || undefined,
+            utmContent: searchParams.get("utm_content") || undefined,
+            utmTerm: searchParams.get("utm_term") || undefined,
+          },
         }),
       });
 
       const sessionData = await sessionRes.json();
+      if (!sessionData.success) {
+        setFatalError({
+          code: sessionData.error?.code || "INVALID_REQUEST",
+          message: sessionData.error?.message || "This chat is unavailable right now.",
+        });
+        return;
+      }
       if (sessionData.success) {
         setConversationId(sessionData.conversationId);
         setSessionToken(sessionData.sessionToken);
@@ -79,6 +95,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
       }
     } catch (e) {
       console.error("Init chat error:", e);
+      setFatalError({ code: "NETWORK_ERROR", message: "We could not reach the chat service. Please try again." });
     } finally {
       setIsInitializing(false);
     }
@@ -130,9 +147,28 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
         if (data.botMessages && data.botMessages.length > 0) {
           setMessages((prev) => [...prev, ...data.botMessages]);
         }
+      } else {
+        // Show the reason inline rather than silently swallowing it.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: "err-" + Date.now(),
+            senderType: "SYSTEM",
+            content: data.error?.message || "That message could not be delivered.",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
       }
     } catch {
-      alert("Message sending failed. Please check network connection.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: "err-" + Date.now(),
+          senderType: "SYSTEM",
+          content: "Network error. Please check your connection and try again.",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -182,6 +218,30 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
     );
   }
 
+  if (fatalError) {
+    const friendly: Record<string, string> = {
+      BOT_NOT_PUBLISHED: "This chatbot has not been published yet.",
+      BOT_DISABLED: "This chatbot is currently disabled.",
+      FORBIDDEN: "This chatbot is not available on this website.",
+      RATE_LIMITED: "Too many requests. Please wait a moment and try again.",
+      SUBSCRIPTION_INACTIVE: "This workspace is not active.",
+    };
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+            <Bot className="w-6 h-6 text-slate-400" />
+          </div>
+          <h1 className="text-lg font-semibold text-slate-900 mb-2">Chat unavailable</h1>
+          <p className="text-sm text-slate-600 mb-6">{friendly[fatalError.code] || fatalError.message}</p>
+          <Button onClick={() => initializeChat()} className="w-full">
+            <RefreshCw className="w-4 h-4 mr-2" /> Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-0 sm:p-4 md:p-6">
       <div className="w-full max-w-2xl h-screen sm:h-[820px] bg-white sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200/80">
@@ -220,6 +280,15 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50">
           {messages.map((msg, idx) => {
             const isBot = msg.senderType === "BOT" || msg.senderType === "AI" || msg.senderType === "AGENT";
+            if (msg.senderType === "SYSTEM") {
+              return (
+                <div key={msg.id || idx} className="flex justify-center">
+                  <span className="text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-3 py-1">
+                    {msg.content}
+                  </span>
+                </div>
+              );
+            }
             let atts = [];
             try {
               if (msg.attachments) {

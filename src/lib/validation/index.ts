@@ -128,10 +128,19 @@ export const aiConfigSchema = z.object({
 });
 
 // Impersonation schema
-export const impersonateSchema = z.object({
-  tenantId: z.string(),
-  action: z.enum(["start", "stop"]).default("start"),
-});
+export const impersonateSchema = z
+  .object({
+    // Stopping impersonation is a property of the current session, not of any
+    // tenant, so the client has no tenantId to send. Requiring it here caused
+    // every "stop impersonating" request to fail validation before reaching
+    // the handler, stranding the admin in the impersonated session.
+    tenantId: z.string().optional(),
+    action: z.enum(["start", "stop"]).default("start"),
+  })
+  .refine((data) => data.action === "stop" || Boolean(data.tenantId), {
+    message: "tenantId is required to start impersonation",
+    path: ["tenantId"],
+  });
 
 // Helper function to validate request body
 export async function validateRequest<T extends z.ZodTypeAny>(
