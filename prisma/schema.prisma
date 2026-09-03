@@ -23,10 +23,10 @@ model Tenant {
   maxFlows            Int       @default(5)
   maxCampaignLinks    Int       @default(50)
   maxStorageMb        Int       @default(100)
-  customSmtpConfig    String?   // JSON string: host, port, user, pass, secure, from
-  aiConfig            String?   // JSON string: enabled, provider, model, apiKey, systemPrompt, temperature
-  widgetSettings      String?   // JSON string: primaryColor, secondaryColor, position, launcherStyle, title, subtitle, greeting, avatar, soundEnabled, allowedDomains
-  branding            String?   // JSON string: logoUrl, customDomain
+  customSmtpConfig    String? // JSON string: host, port, user, pass, secure, from
+  aiConfig            String? // JSON string: enabled, provider, model, apiKey, systemPrompt, temperature
+  widgetSettings      String? // JSON string: primaryColor, secondaryColor, position, launcherStyle, title, subtitle, greeting, avatar, soundEnabled, allowedDomains
+  branding            String? // JSON string: logoUrl, customDomain
   timezone            String    @default("UTC")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -51,6 +51,9 @@ model Tenant {
   apiKeys          ApiKey[]
   usageRecords     UsageRecord[]
   exportJobs       ExportJob[]
+  visitors         Visitor[]
+  trackingLinks    TrackingLink[]
+  notifications    Notification[]
 
   @@index([slug])
   @@index([status])
@@ -60,26 +63,28 @@ model Tenant {
 }
 
 model User {
-  id                 String    @id @default(cuid())
-  tenantId           String?   // NULL for superadmin
-  role               String    @default("CLIENT_ADMIN") // SUPER_ADMIN, CLIENT_OWNER, CLIENT_ADMIN, CLIENT_AGENT, CLIENT_VIEWER
-  email              String    @unique
-  name               String
-  passwordHash       String
-  status             String    @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
-  isActive           Boolean   @default(true)
-  mustChangePassword Boolean   @default(false)
-  lastLoginAt        DateTime?
+  id                     String    @id @default(cuid())
+  tenantId               String? // NULL for superadmin
+  role                   String    @default("CLIENT_ADMIN") // SUPER_ADMIN, CLIENT_OWNER, CLIENT_ADMIN, CLIENT_AGENT, CLIENT_VIEWER
+  email                  String    @unique
+  name                   String
+  passwordHash           String
+  status                 String    @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  isActive               Boolean   @default(true)
+  mustChangePassword     Boolean   @default(false)
+  lastLoginAt            DateTime?
   passwordResetTokenHash String?
   passwordResetExpiresAt DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  deletedAt          DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
 
-  tenant             Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions           Session[]
-  auditLogs          AuditLog[]
-  memberships        TenantUser[]
+  tenant              Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions            Session[]
+  auditLogs           AuditLog[]
+  memberships         TenantUser[]
+  notifications       Notification[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([tenantId])
   @@index([email])
@@ -91,19 +96,19 @@ model User {
 }
 
 model Session {
-  id         String    @id @default(cuid())
-  userId     String
-  tenantId   String?
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  lastSeenAt DateTime  @default(now())
-  ipAddress  String?
-  userAgent  String?
+  id                   String   @id @default(cuid())
+  userId               String
+  tenantId             String?
+  tokenHash            String   @unique
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+  lastSeenAt           DateTime @default(now())
+  ipAddress            String?
+  userAgent            String?
   impersonatedByUserId String?
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tenantId])
@@ -126,52 +131,56 @@ model TenantUser {
 }
 
 model Plan {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  features  PlanFeature[]
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  features      PlanFeature[]
   subscriptions Subscription[]
 }
 
 model PlanFeature {
-  id        String   @id @default(cuid())
-  planId    String
-  key       String
-  value     Int?
-  enabled   Boolean  @default(true)
-  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id      String  @id @default(cuid())
+  planId  String
+  key     String
+  value   Int?
+  enabled Boolean @default(true)
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, key])
 }
 
 model Subscription {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   tenantId  String
   planId    String
-  status    String   @default("ACTIVE")
-  startedAt DateTime @default(now())
+  status    String    @default("ACTIVE")
+  startedAt DateTime  @default(now())
   endsAt    DateTime?
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan      Plan     @relation(fields: [planId], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan      Plan      @relation(fields: [planId], references: [id])
 
   @@index([tenantId, status])
 }
 
 model Contact {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String?
-  email     String?
-  phone     String?
-  company   String?
-  source    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  tenantId      String
+  name          String?
+  email         String?
+  phone         String?
+  company       String?
+  designation   String?
+  location      String?
+  source        String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leads         Lead[]
+  trackingLinks TrackingLink[]
 
   @@index([tenantId, email])
   @@index([tenantId, phone])
@@ -180,56 +189,58 @@ model Contact {
 }
 
 model Chatbot {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  publicId  String   @unique @default(cuid())
+  id          String           @id @default(cuid())
+  tenantId    String
+  name        String
+  publicId    String           @unique @default(cuid())
   description String?
-  status    String   @default("DRAFT")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  versions  ChatbotVersion[]
+  status      String           @default("DRAFT")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  versions    ChatbotVersion[]
 
   @@index([tenantId, status])
 }
 
 model ChatbotVersion {
-  id          String   @id @default(cuid())
-  chatbotId   String
+  id            String    @id @default(cuid())
+  chatbotId     String
   versionNumber Int
-  status      String   @default("DRAFT")
-  configJson  String   @default("{}")
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  publishedAt DateTime?
-  chatbot     Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  status        String    @default("DRAFT")
+  configJson    String    @default("{}")
+  createdBy     String?
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+  chatbot       Chatbot   @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
 
   @@unique([chatbotId, versionNumber])
   @@index([chatbotId, status])
 }
 
 model Flow {
-  id              String   @id @default(cuid())
-  tenantId        String
-  name            String
-  description     String?
-  version         Int      @default(1)
-  status          String   @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
-  isDefault       Boolean  @default(false)
-  nodes           String   @default("[]") // JSON string of ReactFlow nodes
-  edges           String   @default("[]") // JSON string of ReactFlow edges
-  publishedNodes  String?  // JSON string snapshot
-  publishedEdges  String?  // JSON string snapshot
-  triggers        String?  // JSON string: onWidgetOpen, delaySeconds, urlPatterns
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
+  id             String    @id @default(cuid())
+  tenantId       String
+  name           String
+  description    String?
+  version        Int       @default(1)
+  status         String    @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  isDefault      Boolean   @default(false)
+  nodes          String    @default("[]") // JSON string of ReactFlow nodes
+  edges          String    @default("[]") // JSON string of ReactFlow edges
+  publishedNodes String? // JSON string snapshot
+  publishedEdges String? // JSON string snapshot
+  triggers       String? // JSON string: onWidgetOpen, delaySeconds, urlPatterns
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversations   Conversation[]
   analyticsEvents AnalyticsEvent[]
+
+  trackingLinks TrackingLink[]
 
   @@index([tenantId])
   @@index([status])
@@ -240,21 +251,23 @@ model Flow {
 }
 
 model Campaign {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   tenantId         String
   name             String
   slug             String
   flowId           String?
-  metadata         String?  // JSON string: utmSource, utmMedium, tags
-  opensCount       Int      @default(0)
-  conversionsCount Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  metadata         String? // JSON string: utmSource, utmMedium, tags
+  opensCount       Int       @default(0)
+  conversionsCount Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contacts         CampaignContact[]
-  conversations    Conversation[]
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contacts      CampaignContact[]
+  conversations Conversation[]
+  leads         Lead[]
+  trackingLinks TrackingLink[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -270,7 +283,7 @@ model CampaignContact {
   email             String?
   phone             String?
   customUrlSlug     String    @unique
-  metadata          String?   // JSON string
+  metadata          String? // JSON string
   opensCount        Int       @default(0)
   firstOpenedAt     DateTime?
   lastOpenedAt      DateTime?
@@ -279,9 +292,9 @@ model CampaignContact {
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
-  campaign          Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversations     Conversation[]
+  campaign      Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
 
   @@index([tenantId])
   @@index([campaignId])
@@ -290,28 +303,30 @@ model CampaignContact {
 }
 
 model Conversation {
-  id                String    @id @default(cuid())
-  tenantId          String
-  flowId            String?
-  campaignContactId String?
-  campaignId        String?
-  visitorId         String
-  publicSessionTokenHash String? @unique
-  sessionStatus     String    @default("ACTIVE") // ACTIVE, HANDOVER, RESOLVED, ABANDONED
-  visitorInfo       String?   // JSON string: ip, browser, os, device, country, referrer, utm
-  collectedData     String?   @default("{}") // JSON string
-  currentNodeId     String?
-  startedAt         DateTime  @default(now())
-  lastActiveAt      DateTime  @default(now())
-  closedAt          DateTime?
+  id                     String    @id @default(cuid())
+  tenantId               String
+  flowId                 String?
+  campaignContactId      String?
+  campaignId             String?
+  visitorRecordId        String?
+  visitorId              String
+  publicSessionTokenHash String?   @unique
+  sessionStatus          String    @default("ACTIVE") // ACTIVE, HANDOVER, RESOLVED, ABANDONED
+  visitorInfo            String? // JSON string: ip, browser, os, device, country, referrer, utm
+  collectedData          String?   @default("{}") // JSON string
+  currentNodeId          String?
+  startedAt              DateTime  @default(now())
+  lastActiveAt           DateTime  @default(now())
+  closedAt               DateTime?
 
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  flow              Flow?             @relation(fields: [flowId], references: [id], onDelete: SetNull)
-  campaignContact   CampaignContact?  @relation(fields: [campaignContactId], references: [id], onDelete: SetNull)
-  campaign          Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  messages          Message[]
-  leads             Lead[]
-  analyticsEvents   AnalyticsEvent[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  flow            Flow?            @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  campaignContact CampaignContact? @relation(fields: [campaignContactId], references: [id], onDelete: SetNull)
+  campaign        Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  visitor         Visitor?         @relation(fields: [visitorRecordId], references: [id], onDelete: SetNull)
+  messages        Message[]
+  leads           Lead[]
+  analyticsEvents AnalyticsEvent[]
 
   @@index([tenantId])
   @@index([sessionStatus])
@@ -322,19 +337,20 @@ model Conversation {
   @@index([tenantId, startedAt])
   @@index([publicSessionTokenHash])
   @@index([campaignId])
+  @@index([visitorRecordId])
 }
 
 model Message {
   id             String   @id @default(cuid())
   conversationId String
-  senderType     String   // BOT, VISITOR, AI, AGENT
+  senderType     String // BOT, VISITOR, AI, AGENT
   senderName     String?
   content        String
-  attachments    String?  // JSON string: array of { url, name, size, type }
+  attachments    String? // JSON string: array of { url, name, size, type }
   nodeId         String?
   timestamp      DateTime @default(now())
 
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([timestamp])
@@ -343,24 +359,30 @@ model Message {
 }
 
 model Lead {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   tenantId        String
   conversationId  String?
+  contactId       String?
+  campaignId      String?
   name            String?
   email           String?
   phone           String?
-  contactInfo     String?  // JSON string
-  collectedFields String?  // JSON string
-  score           Int      @default(0)
-  status          String   @default("NEW") // NEW, CONTACTED, QUALIFIED, CONVERTED, ARCHIVED
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  contactInfo     String? // JSON string
+  collectedFields String? // JSON string
+  score           Int       @default(0)
+  status          String    @default("NEW") // NEW, CONTACTED, QUALIFIED, CONVERTED, ARCHIVED
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  campaign     Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([contactId])
+  @@index([campaignId])
   @@index([status])
   @@index([deletedAt])
   @@index([tenantId, status])
@@ -375,11 +397,11 @@ model KnowledgeDoc {
   title     String
   category  String?
   content   String
-  embedding String?  // JSON or text
+  embedding String? // JSON or text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
@@ -389,14 +411,14 @@ model AnalyticsEvent {
   tenantId       String
   flowId         String?
   conversationId String?
-  eventType      String   // SESSION_START, NODE_VIEW, NODE_SUBMIT, BUTTON_CLICK, CAMPAIGN_OPEN, CONVERSION, HANDOVER_REQUEST
+  eventType      String // SESSION_START, NODE_VIEW, NODE_SUBMIT, BUTTON_CLICK, CAMPAIGN_OPEN, CONVERSION, HANDOVER_REQUEST
   nodeId         String?
-  metadata       String?  // JSON string
+  metadata       String? // JSON string
   timestamp      DateTime @default(now())
 
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  flow           Flow?         @relation(fields: [flowId], references: [id], onDelete: SetNull)
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  flow         Flow?         @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([eventType])
@@ -412,12 +434,12 @@ model AuditLog {
   tenantId  String?
   userId    String?
   action    String
-  details   String?  // JSON string
+  details   String? // JSON string
   ipAddress String?
   timestamp DateTime @default(now())
 
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([userId])
@@ -451,7 +473,7 @@ model Attachment {
   sizeBytes        Int
   createdAt        DateTime @default(now())
 
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([storageKey])
@@ -466,7 +488,7 @@ model Webhook {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
@@ -480,7 +502,7 @@ model ApiKey {
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
@@ -488,12 +510,12 @@ model ApiKey {
 model UsageRecord {
   id        String   @id @default(cuid())
   tenantId  String
-  metric    String   // "MESSAGES", "FLOWS", "STORAGE_MB", "CAMPAIGN_LINKS"
+  metric    String // "MESSAGES", "FLOWS", "STORAGE_MB", "CAMPAIGN_LINKS"
   quantity  Int      @default(0)
-  period    String   // "2026-09"
+  period    String // "2026-09"
   createdAt DateTime @default(now())
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, metric, period])
   @@index([tenantId])
@@ -502,18 +524,17 @@ model UsageRecord {
 model ExportJob {
   id          String   @id @default(cuid())
   tenantId    String
-  type        String   // "CONVERSATIONS", "CONTACTS", "LEADS"
+  type        String // "CONVERSATIONS", "CONTACTS", "LEADS"
   status      String   @default("PENDING") // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
   downloadUrl String?
-  filters     String?  // JSON
+  filters     String? // JSON
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
-
 
 /// Shared rate-limit counters. Vercel gives each lambda its own memory, so an
 /// in-process Map provided no real protection: the effective limit was the
@@ -524,5 +545,99 @@ model RateLimitCounter {
   count       Int      @default(0)
   expiresAt   DateTime
 
+  @@index([expiresAt])
+}
+
+/// A returning anonymous visitor. Conversation.visitorId previously pointed at
+/// nothing, so the same person opening the widget twice looked like two
+/// unrelated people and no cross-session behaviour could be reported.
+model Visitor {
+  id           String   @id @default(cuid())
+  tenantId     String
+  anonymousId  String
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  sessionCount Int      @default(1)
+  metadata     String? // JSON string: device, referrer, country
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([tenantId, anonymousId])
+  @@index([tenantId])
+  @@index([lastSeenAt])
+}
+
+/// A shareable campaign link. The token is cryptographically random and never
+/// derived from an email, phone number or row id.
+model TrackingLink {
+  id                String    @id @default(cuid())
+  tenantId          String
+  campaignId        String?
+  flowId            String?
+  contactId         String?
+  token             String    @unique
+  firstOpenedAt     DateTime?
+  lastOpenedAt      DateTime?
+  openCount         Int       @default(0)
+  conversationCount Int       @default(0)
+  leadGenerated     Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  utmSource         String?
+  utmMedium         String?
+  utmCampaign       String?
+  utmContent        String?
+  utmTerm           String?
+  createdAt         DateTime  @default(now())
+  deletedAt         DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  flow     Flow?     @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  contact  Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@index([token])
+  @@index([tenantId, isActive])
+}
+
+/// In-app notification, e.g. "a new lead was captured".
+model Notification {
+  id         String    @id @default(cuid())
+  tenantId   String
+  userId     String?
+  type       String
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, readAt])
+  @@index([createdAt])
+}
+
+/// Password reset tokens. Previously flattened onto two User columns, which
+/// allowed only one live token per user and left no record of issuance.
+/// Only the SHA-256 hash of the token is stored.
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@index([expiresAt])
 }

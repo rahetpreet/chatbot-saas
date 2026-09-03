@@ -4,7 +4,7 @@ import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { hashPublicSessionToken } from "@/lib/services/public/session";
 import { persistCapturedConversationData } from "@/lib/services/conversation/capture";
-import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 
@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
       return { visitorMessage, botMessages: botMessages.filter((message) => message.senderType === "BOT") };
     });
     const data = { ...result, interactiveNode: step.interactiveNode, sessionStatus: step.sessionStatus };
+    await recordUsage(conversation.tenantId, "messages", 1 + step.botMessages.length);
+
     return withPublicCors(NextResponse.json({ success: true, ...data, data }), origin, allowedDomains);
   } catch {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: "Unable to process message." } }, { status: 400 });

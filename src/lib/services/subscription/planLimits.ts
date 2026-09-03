@@ -125,3 +125,31 @@ export async function assertUsageAvailable(
 
   return { allowed: true, current: metric === "storage" ? Math.ceil(current / (1024 * 1024)) : current, limit };
 }
+
+/**
+ * Records consumption against the current billing period.
+ *
+ * `assertUsageAvailable` counts live rows, which stays correct as data is
+ * deleted; these records are the durable history behind usage reporting and
+ * were never written despite the table existing since the initial schema.
+ * Failures are swallowed on purpose: metering must never break the request
+ * that produced the usage.
+ */
+export async function recordUsage(
+  tenantId: string,
+  metric: "messages" | "conversations" | "storage" | "ai_messages",
+  quantity = 1,
+): Promise<void> {
+  if (quantity <= 0) return;
+  const now = new Date();
+  const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  try {
+    await prisma.usageRecord.upsert({
+      where: { tenantId_metric_period: { tenantId, metric, period } },
+      create: { tenantId, metric, period, quantity },
+      update: { quantity: { increment: quantity } },
+    });
+  } catch (error) {
+    console.warn("[usage] could not record usage:", error);
+  }
+}

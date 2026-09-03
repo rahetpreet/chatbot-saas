@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
-  "buildCommand": "prisma generate && prisma migrate deploy && next build --webpack",
+  "buildCommand": "prisma generate && PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true prisma migrate deploy && next build --webpack",
   "installCommand": "npm install"
 }

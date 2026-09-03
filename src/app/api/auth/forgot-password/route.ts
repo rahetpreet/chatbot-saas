@@ -19,7 +19,17 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.findUnique({ where: { email } });
     if (user && user.isActive) {
       const { token, tokenHash, expiresAt } = generatePasswordResetToken();
-      await prisma.user.update({ where: { id: user.id }, data: { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: expiresAt } });
+      // Any token issued earlier is invalidated, so a stolen older link cannot
+      // be used after the user requests a fresh one.
+      await prisma.$transaction([
+        prisma.passwordResetToken.updateMany({
+          where: { userId: user.id, consumedAt: null },
+          data: { consumedAt: new Date() },
+        }),
+        prisma.passwordResetToken.create({
+          data: { userId: user.id, tokenHash, expiresAt, ipAddress: ip === "unknown" ? null : ip },
+        }),
+      ]);
       const appUrl = process.env.APP_URL;
       if (!appUrl) throw new Error("APP_URL not configured");
       const resetUrl = `${appUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;

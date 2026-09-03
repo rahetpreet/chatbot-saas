@@ -17,11 +17,20 @@ export async function POST(req: NextRequest) {
     const strength = validatePasswordStrength(password);
     if (!strength.valid) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: strength.errors[0] } }, { status: 400 });
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const user = await prisma.user.findFirst({ where: { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: { gt: new Date() } } });
-    if (!user) return NextResponse.json({ success: false, error: { code: "PASSWORD_RESET_INVALID", message: "This reset link is invalid or has expired." } }, { status: 400 });
+    const resetToken = await prisma.passwordResetToken.findFirst({
+      where: { tokenHash, consumedAt: null, expiresAt: { gt: new Date() } },
+      include: { user: true },
+    });
+    const user = resetToken?.user;
+    if (!resetToken || !user || !user.isActive) {
+      return NextResponse.json({ success: false, error: { code: "PASSWORD_RESET_INVALID", message: "This reset link is invalid or has expired." } }, { status: 400 });
+    }
     const passwordHash = await hashPassword(password);
     await prisma.$transaction([
       prisma.user.update({ where: { id: user.id }, data: { passwordHash, passwordResetTokenHash: null, passwordResetExpiresAt: null, mustChangePassword: false } }),
+      // Consuming the token is what makes it single-use.
+      prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { consumedAt: new Date() } }),
+      prisma.passwordResetToken.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: new Date() } }),
       prisma.session.deleteMany({ where: { userId: user.id } }),
       prisma.auditLog.create({ data: { tenantId: user.tenantId, userId: user.id, action: "PASSWORD_RESET", ipAddress: ip } }),
     ]);

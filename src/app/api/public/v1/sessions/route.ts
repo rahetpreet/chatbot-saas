@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
-import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
@@ -105,6 +105,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Durable visitor identity. Conversation.visitorId is a client-supplied
+    // anonymous id; recording it against a Visitor row is what lets a
+    // returning visitor be recognised across sessions.
+    const visitor = await prisma.visitor.upsert({
+      where: { tenantId_anonymousId: { tenantId: tenant.id, anonymousId: visitorId } },
+      create: {
+        tenantId: tenant.id,
+        anonymousId: visitorId,
+        metadata: JSON.stringify({ device: body.device || null, referrer: typeof body.referrer === "string" ? body.referrer.slice(0, 2048) : null }),
+      },
+      update: { lastSeenAt: new Date(), sessionCount: { increment: 1 } },
+    });
+
     const token = crypto.randomBytes(32).toString("base64url");
     const nodes = JSON.parse(flow.publishedNodes || "[]");
     const edges = JSON.parse(flow.publishedEdges || "[]");
@@ -126,6 +139,7 @@ export async function POST(req: NextRequest) {
           campaignContactId,
           campaignId,
           visitorId,
+          visitorRecordId: visitor.id,
           publicSessionTokenHash: hash(token),
           sessionStatus: step.sessionStatus,
           currentNodeId: step.currentNodeId,
@@ -161,6 +175,9 @@ export async function POST(req: NextRequest) {
 
       return created;
     });
+
+    await recordUsage(tenant.id, "conversations", 1);
+    await recordUsage(tenant.id, "messages", step.botMessages.length);
 
     const messages = await prisma.message.findMany({
       where: { conversationId: conversation.id },

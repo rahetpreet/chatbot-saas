@@ -81,6 +81,8 @@ export async function POST(req: NextRequest) {
         data: {
           tenantId: conversation.tenantId,
           conversationId: conversation.id,
+          contactId: contact.id,
+          campaignId: conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null,
           name: cleanName,
           email: normalizedEmail,
           phone: cleanPhone,
@@ -100,6 +102,33 @@ export async function POST(req: NextRequest) {
           metadata: JSON.stringify({ leadId: lead.id, contactId: contact.id }),
         },
       });
+
+      // Notify the workspace so a captured lead is not discovered only by
+      // someone happening to open the leads page.
+      await tx.notification.create({
+        data: {
+          tenantId: conversation.tenantId,
+          type: "LEAD_CREATED",
+          title: "New lead captured",
+          body: cleanName || normalizedEmail || cleanPhone || "A visitor submitted their details.",
+          entityType: "Lead",
+          entityId: lead.id,
+        },
+      });
+
+      if (conversation.campaignContactId) {
+        await tx.campaignContact.updateMany({
+          where: { id: conversation.campaignContactId },
+          data: { status: "CONVERTED" },
+        });
+      }
+      const attributedCampaignId = conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null;
+      if (attributedCampaignId) {
+        await tx.campaign.updateMany({
+          where: { id: attributedCampaignId },
+          data: { conversionsCount: { increment: 1 } },
+        });
+      }
 
       return { lead, contact };
     });

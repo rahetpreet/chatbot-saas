@@ -156,6 +156,13 @@ export class TenantService {
 
       await tx.session.deleteMany({ where: { userId: owner.id } });
 
+      // An outstanding self-service reset link must not survive an admin
+      // reset, or it could be used to take the account back.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: owner.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+
       await tx.auditLog.create({
         data: {
           tenantId,

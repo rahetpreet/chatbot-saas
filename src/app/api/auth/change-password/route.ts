@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     await prisma.$transaction([
       prisma.user.update({ where: { id: user.id }, data: { passwordHash, mustChangePassword: false } }),
       prisma.session.deleteMany({ where: { userId: user.id } }),
+      prisma.passwordResetToken.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: new Date() } }),
       prisma.auditLog.create({ data: { tenantId: user.tenantId, userId: user.id, action: "PASSWORD_CHANGED", ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null } }),
     ]);
     const { token, expiresAt } = await createSession(user, { ipAddress: req.headers.get("x-forwarded-for"), userAgent: req.headers.get("user-agent") });
