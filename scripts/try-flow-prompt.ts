@@ -27,7 +27,12 @@ function loadEnv(path: string): Record<string, string> {
 }
 
 // Loaded before importing the AI module, which reads these at call time.
-Object.assign(process.env, loadEnv(".env"), loadEnv(".env.vercel"));
+// Values already set on the command line win, so a single provider or model
+// can be tested without editing the files.
+const fileEnv = { ...loadEnv(".env"), ...loadEnv(".env.vercel") };
+for (const [key, value] of Object.entries(fileEnv)) {
+  if (!process.env[key]) process.env[key] = value;
+}
 
 const prompt = process.argv.slice(2).join(" ").trim();
 const business = process.env.BUSINESS_NAME || "Acme";

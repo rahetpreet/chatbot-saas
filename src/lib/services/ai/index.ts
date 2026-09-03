@@ -172,6 +172,11 @@ type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 interface HostedProviderSpec {
   endpoint: string;
   defaultModel: string;
+  /** Ordered fallbacks, best first, used when the chosen model is gone. */
+  preferredModels: string[];
+  /** Lists the models this key can actually use. */
+  modelsUrl(apiKey: string): string;
+  extractModels(payload: any): string[];
   buildBody(
     model: string,
     system: string,
@@ -201,6 +206,14 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
     // "no longer available" -- a pinned default silently breaks AI for every
     // workspace the day it is retired.
     defaultModel: "gemini-flash-latest",
+    preferredModels: ["gemini-flash-latest", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-lite-latest"],
+    modelsUrl: (apiKey) =>
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=200`,
+    extractModels: (payload) =>
+      (payload?.models || [])
+        .filter((model: any) => (model?.supportedGenerationMethods || []).includes("generateContent"))
+        .map((model: any) => String(model.name || "").split("/").pop() || "")
+        .filter(Boolean),
     buildHeaders: () => ({ "Content-Type": "application/json" }),
     buildBody: (_model, system, history, query, temperature, json) => ({
       systemInstruction: { parts: [{ text: system }] },
@@ -229,7 +242,11 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
   // Free key at https://console.groq.com/keys
   groq: {
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    defaultModel: "llama-3.3-70b-versatile",
+    // Groq retired the Llama line; these are what a current free key can use.
+    defaultModel: "openai/gpt-oss-120b",
+    preferredModels: ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "qwen/qwen3.6-27b"],
+    modelsUrl: () => "https://api.groq.com/openai/v1/models",
+    extractModels: (payload) => (payload?.data || []).map((model: any) => String(model.id)).filter(Boolean),
     buildHeaders: (apiKey) => ({ "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }),
     buildBody: (model, system, history, query, temperature, json) => ({
       model,
@@ -244,6 +261,13 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
   openrouter: {
     endpoint: "https://openrouter.ai/api/v1/chat/completions",
     defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
+    preferredModels: [
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "qwen/qwen-2.5-72b-instruct:free",
+      "google/gemma-2-9b-it:free",
+    ],
+    modelsUrl: () => "https://openrouter.ai/api/v1/models",
+    extractModels: (payload) => (payload?.data || []).map((model: any) => String(model.id)).filter(Boolean),
     buildHeaders: (apiKey) => ({ "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }),
     buildBody: (model, system, history, query, temperature, json) => ({
       model,
@@ -260,6 +284,56 @@ export const SUPPORTED_AI_PROVIDERS = Object.keys(HOSTED_PROVIDERS);
 
 /** Load-shedding and rate limiting, as opposed to a request that is just wrong. */
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+/**
+ * Model names rot.
+ *
+ * Providers retire models on their own schedule and without warning: Gemini
+ * started returning 404 "gemini-2.0-flash is no longer available", and Groq
+ * dropped the entire Llama line, both while this was being built. A pinned
+ * model name is therefore a scheduled outage — and worse, a silent one, since
+ * the app just falls back to keyword templates.
+ *
+ * So a "model not found" is treated as recoverable: ask the provider what this
+ * key can actually use, pick the best match, and carry on. The answer is
+ * cached per key so it costs one extra request, once.
+ */
+const MODEL_MISSING = /model[_ ]?not[_ ]?found|no longer available|is not found|does not exist|unknown model/i;
+
+const resolvedModelCache = new Map<string, string>();
+
+async function discoverModel(provider: string, spec: HostedProviderSpec, apiKey: string): Promise<string | null> {
+  const cacheKey = `${provider}:${apiKey.slice(-8)}`;
+  const cached = resolvedModelCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(spec.modelsUrl(apiKey), {
+      headers: spec.buildHeaders(apiKey),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return null;
+
+    const available = new Set(spec.extractModels(await response.json()));
+    if (available.size === 0) return null;
+
+    // Prefer a known-good model; otherwise take any chat-capable one rather
+    // than failing outright.
+    const chosen =
+      spec.preferredModels.find((model) => available.has(model)) ||
+      [...available].find((model) => !/whisper|tts|embed|guard|moderation|vision|image/i.test(model)) ||
+      null;
+
+    if (chosen) {
+      resolvedModelCache.set(cacheKey, chosen);
+      console.warn(`[ai] ${provider}: configured model unavailable, using "${chosen}" instead.`);
+    }
+    return chosen;
+  } catch (error) {
+    console.warn(`[ai] ${provider}: could not list models:`, error);
+    return null;
+  }
+}
 const RETRYABLE_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [800, 2200];
 
@@ -297,21 +371,22 @@ export class HostedAIProvider implements AIProvider {
     const spec = HOSTED_PROVIDERS[this.config.provider];
     if (!spec || !this.config.apiKey) throw new Error("AI provider is not configured.");
 
-    const model = this.config.model || spec.defaultModel;
+    let model = this.config.model || spec.defaultModel;
     const temperature = params.temperature ?? this.config.temperature ?? 0.7;
-    const body = JSON.stringify(
-      spec.buildBody(model, params.system, [], params.user, temperature, params.json ?? false),
-    );
+    const buildBody = () =>
+      JSON.stringify(spec.buildBody(model, params.system, [], params.user, temperature, params.json ?? false));
 
     let lastError = "";
+    let rediscovered = false;
+
     for (let attempt = 0; attempt < RETRYABLE_ATTEMPTS; attempt++) {
-      if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+      if (attempt > 0) await sleep(RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)]);
 
       try {
         const response = await fetch(this.urlFor(model, spec), {
           method: "POST",
           headers: spec.buildHeaders(this.config.apiKey),
-          body,
+          body: buildBody(),
           // Flow generation is interactive; a stalled provider must not hang
           // the request until the platform's own timeout.
           signal: AbortSignal.timeout(45_000),
@@ -321,6 +396,19 @@ export class HostedAIProvider implements AIProvider {
 
         const detail = await response.text().catch(() => "");
         lastError = `${this.config.provider} HTTP ${response.status}: ${detail.slice(0, 300)}`;
+
+        // A retired model is not a transient failure, but it is recoverable:
+        // find one this key can still use and try again rather than dropping
+        // to the keyword fallback.
+        if (!rediscovered && MODEL_MISSING.test(detail)) {
+          rediscovered = true;
+          const replacement = await discoverModel(this.config.provider, spec, this.config.apiKey);
+          if (replacement && replacement !== model) {
+            model = replacement;
+            continue;
+          }
+        }
+
         if (!RETRYABLE_STATUSES.has(response.status)) throw new Error(lastError);
         console.warn(`[ai] ${lastError} — retrying (${attempt + 1}/${RETRYABLE_ATTEMPTS})`);
       } catch (error: any) {
