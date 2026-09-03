@@ -44,6 +44,9 @@ const SYNCED = [
   { key: "AI_PROVIDER", why: "gemini | groq | openrouter | ollama | disabled" },
   { key: "AI_API_KEY", why: "Platform AI key, shared by every workspace." },
   { key: "AI_MODEL", why: "Optional; blank uses the provider default." },
+  { key: "GEMINI_API_KEY", why: "Backup provider key." },
+  { key: "GROQ_API_KEY", why: "Backup provider. Free key at https://console.groq.com/keys" },
+  { key: "OPENROUTER_API_KEY", why: "Optional third provider." },
   {
     key: "STORAGE_PROVIDER",
     why: "Must be 'blob' in production; 'local' is refused on serverless.",

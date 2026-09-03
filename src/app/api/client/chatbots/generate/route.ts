@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
-import { getGenerationProvider } from "@/lib/services/ai";
+import { getGenerationProviders } from "@/lib/services/ai";
 import { FlowNodeData } from "@/types";
 import { validateFlowGraph } from "@/lib/services/flow/validation";
 import { FLOW_SYSTEM_PROMPT, buildFlowUserPrompt, extractJsonObject, normalizeGeneratedGraph } from "@/lib/services/flow/aiGenerator";
@@ -434,9 +434,11 @@ export async function POST(req: NextRequest) {
     let generatedBy = "compiler";
     let aiError: string | null = null;
 
-    // 1. Real model first: the workspace's own key, else the platform key.
-    const generator = getGenerationProvider(readTenantAiConfig(tenant?.aiConfig));
-    if (generator) {
+    // 1. Real model first, trying each configured provider in turn. Free tiers
+    // shed load independently, so a second provider turns "the AI produced
+    // nonsense" (really: the fallback ran) into a non-event.
+    const generators = getGenerationProviders(readTenantAiConfig(tenant?.aiConfig));
+    for (const generator of generators) {
       try {
         const completion = await generator.complete({
           system: FLOW_SYSTEM_PROMPT,
@@ -445,18 +447,23 @@ export async function POST(req: NextRequest) {
           user: buildFlowUserPrompt(String(prompt || templatePreset), tenant?.name || "our company"),
         });
 
-        const parsed = extractJsonObject(completion);
-        const normalized = normalizeGeneratedGraph(parsed);
+        const normalized = normalizeGeneratedGraph(extractJsonObject(completion));
         if (normalized) {
           generated = normalized;
           generatedBy = "ai";
-        } else {
-          aiError = "The model returned a graph that could not be validated.";
+          aiError = null;
+          break; // first provider that produces a usable graph wins
         }
+        aiError = `${generator.providerName} returned a graph that could not be validated.`;
+        console.warn(`[flow-generate] ${aiError}`);
       } catch (error: any) {
-        aiError = error?.message || "AI request failed.";
-        console.warn("[flow-generate] model call failed, using the deterministic compiler:", aiError);
+        aiError = `${generator.providerName}: ${error?.message || "request failed"}`;
+        console.warn(`[flow-generate] ${aiError} — trying the next provider`);
       }
+    }
+
+    if (!generated && generators.length === 0) {
+      aiError = "No AI provider is configured.";
     }
 
     // 2. Intelligent Dynamic Prompt Compiler

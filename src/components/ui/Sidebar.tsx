@@ -14,6 +14,7 @@ import {
   Mail,
   ShieldAlert,
   Building2,
+  Activity,
   Sliders,
   FileText,
   LogOut,
@@ -69,6 +70,7 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
     { label: "Global Dashboard", href: "/superadmin/dashboard", icon: LayoutDashboard },
     { label: "Companies & Tenants", href: "/superadmin/tenants", icon: Building2 },
     { label: "Platform Usage", href: "/superadmin/quotas", icon: Sliders },
+    { label: "System Check", href: "/superadmin/system-check", icon: Activity },
     { label: "System Audit Logs", href: "/superadmin/audit-logs", icon: FileText },
     { label: "Security & Password", href: "/superadmin/settings", icon: ShieldAlert },
   ];

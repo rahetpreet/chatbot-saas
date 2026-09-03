@@ -272,6 +272,11 @@ export class HostedAIProvider implements AIProvider {
     this.config = config;
   }
 
+  /** Provider and model, for logs and the system check. */
+  get providerName(): string {
+    return this.config.provider + ":" + (this.config.model || HOSTED_PROVIDERS[this.config.provider]?.defaultModel || "?");
+  }
+
   private urlFor(model: string, spec: HostedProviderSpec): string {
     return this.config.provider === "gemini"
       ? `${spec.endpoint}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.config.apiKey || "")}`
@@ -389,34 +394,83 @@ export const ExternalAPIProvider = HostedAIProvider;
  * makes AI work out of the box for every workspace: the operator supplies one
  * free key instead of each client bringing their own.
  */
-export function getPlatformAIConfig(): AIConfig | null {
-  const provider = (process.env.AI_PROVIDER || "disabled").toLowerCase();
-  if (provider === "disabled") return null;
+/** Per-provider key, so several can be configured at once for failover. */
+const PROVIDER_KEY_ENV: Record<string, string> = {
+  gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
 
-  if (provider === "ollama") {
-    return {
-      enabled: true,
-      provider: "ollama",
-      model: process.env.OLLAMA_MODEL || "llama3.2",
-      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-      systemPrompt: "",
-      temperature: 0.7,
-      confidenceThreshold: 0.6,
-    };
-  }
-
-  const apiKey = process.env.AI_API_KEY || process.env.EXTERNAL_AI_API_KEY;
-  if (!HOSTED_PROVIDERS[provider] || !apiKey) return null;
-
+function hostedConfig(provider: string, apiKey: string, model?: string): AIConfig {
   return {
     enabled: true,
     provider: provider as AIConfig["provider"],
-    model: process.env.AI_MODEL || HOSTED_PROVIDERS[provider].defaultModel,
+    model: model || HOSTED_PROVIDERS[provider].defaultModel,
     apiKey,
     systemPrompt: "",
     temperature: 0.7,
     confidenceThreshold: 0.6,
   };
+}
+
+/**
+ * Every platform provider that is configured, in the order they should be
+ * tried.
+ *
+ * Free tiers shed load: Gemini returned "experiencing high demand" repeatedly
+ * during testing, and a single provider meant one busy spell silently dropped
+ * flow generation to the keyword fallback. Configuring a second provider makes
+ * that a non-event.
+ *
+ * AI_PROVIDER + AI_API_KEY names the preferred one; GEMINI_API_KEY,
+ * GROQ_API_KEY and OPENROUTER_API_KEY add backups.
+ */
+export function getPlatformAIConfigs(): AIConfig[] {
+  const preferred = (process.env.AI_PROVIDER || "disabled").toLowerCase();
+  if (preferred === "disabled") return [];
+
+  if (preferred === "ollama") {
+    return [
+      {
+        enabled: true,
+        provider: "ollama",
+        model: process.env.OLLAMA_MODEL || "llama3.2",
+        baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+        systemPrompt: "",
+        temperature: 0.7,
+        confidenceThreshold: 0.6,
+      },
+    ];
+  }
+
+  const configs: AIConfig[] = [];
+  const seen = new Set<string>();
+
+  const primaryKey =
+    process.env.AI_API_KEY ||
+    process.env.EXTERNAL_AI_API_KEY ||
+    (PROVIDER_KEY_ENV[preferred] ? process.env[PROVIDER_KEY_ENV[preferred]] : undefined);
+
+  if (HOSTED_PROVIDERS[preferred] && primaryKey) {
+    configs.push(hostedConfig(preferred, primaryKey, process.env.AI_MODEL));
+    seen.add(preferred);
+  }
+
+  for (const [provider, envName] of Object.entries(PROVIDER_KEY_ENV)) {
+    if (seen.has(provider)) continue;
+    const key = process.env[envName];
+    if (key) {
+      configs.push(hostedConfig(provider, key));
+      seen.add(provider);
+    }
+  }
+
+  return configs;
+}
+
+/** The preferred provider only. Kept for callers that want a single config. */
+export function getPlatformAIConfig(): AIConfig | null {
+  return getPlatformAIConfigs()[0] ?? null;
 }
 
 function providerFromConfig(config: AIConfig): AIProvider {
@@ -469,8 +523,9 @@ export function isAIAvailable(aiConfigJson?: string | null): boolean {
  * A provider capable of raw completions, for flow generation. Prefers the
  * workspace's own key and falls back to the platform key.
  */
-export function getGenerationProvider(aiConfigJson?: string | null): HostedAIProvider | null {
-  const candidates: (AIConfig | null)[] = [];
+export function getGenerationProviders(aiConfigJson?: string | null): HostedAIProvider[] {
+  const candidates: AIConfig[] = [];
+
   if (aiConfigJson) {
     try {
       const config: AIConfig = JSON.parse(aiConfigJson);
@@ -479,11 +534,26 @@ export function getGenerationProvider(aiConfigJson?: string | null): HostedAIPro
       /* ignore malformed configuration */
     }
   }
-  candidates.push(getPlatformAIConfig());
 
-  for (const candidate of candidates) {
-    if (candidate?.apiKey && HOSTED_PROVIDERS[candidate.provider]) return new HostedAIProvider(candidate);
+  // Platform providers come after the workspace's own, and a provider already
+  // present is not repeated -- retrying the same busy endpoint is pointless.
+  const seen = new Set(candidates.map((config) => config.provider));
+  for (const config of getPlatformAIConfigs()) {
+    if (config.provider === "ollama" || seen.has(config.provider)) continue;
+    candidates.push(config);
+    seen.add(config.provider);
   }
-  return null;
+
+  return candidates.map((config) => new HostedAIProvider(config));
+}
+
+/** The first usable generation provider, or null when none is configured. */
+export function getGenerationProvider(aiConfigJson?: string | null): HostedAIProvider | null {
+  return getGenerationProviders(aiConfigJson)[0] ?? null;
+}
+
+/** Which provider a HostedAIProvider will call, for logging and diagnostics. */
+export function describeProvider(provider: HostedAIProvider): string {
+  return provider.providerName;
 }
 
