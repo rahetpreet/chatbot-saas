@@ -233,3 +233,30 @@ workspace stops working, because that is how an operator suspends an account.
 Every call site already routes through those two functions, so re-enabling
 quotas later is a change to one file. Consumption is still recorded in
 `UsageRecord`, so the history exists whenever you do want to bill on it.
+
+---
+
+## Pushing environment variables to Vercel
+
+`.env` is a development file, so copying it wholesale into production would set
+`APP_URL` to localhost and storage to the local filesystem. This script pushes
+only the values that are valid in production and refuses the rest:
+
+```bash
+node scripts/sync-vercel-env.mjs
+```
+
+It prints what it would do without changing anything. Secret values are masked
+in the output. When the list looks right:
+
+```bash
+node scripts/sync-vercel-env.mjs --apply
+```
+
+It uses your own `vercel` login, replaces existing values so it is safe to
+re-run, and covers Production and Preview. Redeploy afterwards — Vercel only
+reads new values on a fresh build.
+
+Anything it reports as **SKIP** is a development value you need to correct in
+`.env` first (a real `APP_URL`, `STORAGE_PROVIDER=blob`, `EMAIL_PROVIDER=smtp`,
+a real sender address).
