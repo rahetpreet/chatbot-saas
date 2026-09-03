@@ -16,14 +16,6 @@ import {
 export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  // Generous: this is fetched once per widget load, but it is still an
-  // unauthenticated endpoint that performs a database lookup.
-  if (!(await checkRateLimit(`public-config:${ip}`, 120, 60_000))) {
-    return NextResponse.json(
-      { success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } },
-      { status: 429 },
-    );
-  }
 
   const tenantSlug = new URL(req.url).searchParams.get("tenantSlug");
   if (!tenantSlug) {
@@ -33,20 +25,35 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const tenant = await prisma.tenant.findFirst({
-    where: { slug: tenantSlug, status: { in: ["TRIAL", "ACTIVE"] }, deletedAt: null },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      widgetSettings: true,
-      flows: {
-        where: { status: "PUBLISHED", isDefault: true, deletedAt: null },
-        select: { id: true, name: true, version: true },
-        take: 1,
+  // The rate-limit counter is a database write and the tenant lookup is a
+  // database read; run them together rather than paying for two round trips
+  // in series. This endpoint is fetched on every widget load, so the saving
+  // is on the path every visitor waits for. The limit is still enforced
+  // below -- the read is simply already in flight by then.
+  const [allowed, tenant] = await Promise.all([
+    checkRateLimit(`public-config:${ip}`, 120, 60_000),
+    prisma.tenant.findFirst({
+      where: { slug: tenantSlug, status: { in: ["TRIAL", "ACTIVE"] }, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        widgetSettings: true,
+        flows: {
+          where: { status: "PUBLISHED", isDefault: true, deletedAt: null },
+          select: { id: true, name: true, version: true },
+          take: 1,
+        },
       },
-    },
-  });
+    }),
+  ]);
+
+  if (!allowed) {
+    return NextResponse.json(
+      { success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } },
+      { status: 429 },
+    );
+  }
 
   if (!tenant || !tenant.flows[0]) {
     return NextResponse.json(
