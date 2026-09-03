@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { getPublicConversation } from "@/lib/services/public/session";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import prismaTenant from "@/lib/prisma";
-import { isAllowedPublicOrigin, parseAllowedDomains, withPublicCors } from "@/lib/services/public/cors";
+import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -17,4 +17,8 @@ export async function GET(req: NextRequest) {
   if (!isAllowedPublicOrigin(origin, allowedDomains)) return NextResponse.json({ error: "Origin is not allowed" }, { status: 403 });
   const messages = await prisma.message.findMany({ where: { conversationId: conversation.id }, orderBy: { timestamp: "asc" } });
   return withPublicCors(NextResponse.json({ success: true, sessionStatus: conversation.sessionStatus, messages, lastActiveAt: conversation.lastActiveAt }), origin, allowedDomains);
+}
+
+export function OPTIONS(req: NextRequest) {
+  return publicCorsPreflight(req.headers.get("origin"));
 }

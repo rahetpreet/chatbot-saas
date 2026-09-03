@@ -26,12 +26,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const { name, email, phone, company } = body;
 
-    await ContactRepository.update(tenantId, id, {
+    // updateMany is tenant-scoped, so a foreign or unknown id matches zero
+    // rows. Reporting success in that case told the caller an update happened
+    // when nothing did.
+    const { count } = await ContactRepository.update(tenantId, id, {
       name: name || undefined,
       email: email || undefined,
       phone: phone || undefined,
       company: company || undefined,
     });
+    if (count === 0) {
+      return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Contact not found" } }, { status: 404 });
+    }
 
     const updatedContact = await ContactRepository.findById(tenantId, id);
     return NextResponse.json({ success: true, data: { contact: updatedContact }, contact: updatedContact });
@@ -45,7 +51,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const { id } = await params;
 
-    await ContactRepository.delete(tenantId, id);
+    const { count } = await ContactRepository.delete(tenantId, id);
+    if (count === 0) {
+      return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Contact not found" } }, { status: 404 });
+    }
     return NextResponse.json({ success: true, data: { message: "Contact deleted successfully" } });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to delete contact" } }, { status: 400 });

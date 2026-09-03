@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 // Common validation schemas
-export const emailSchema = z.string().email("Invalid email address").max(320).trim().toLowerCase();
+// trim() and toLowerCase() must run BEFORE email(): Zod applies checks in
+// declaration order, so validating first meant a trailing space in the login
+// form was rejected as an invalid address instead of being normalised.
+export const emailSchema = z.string().trim().toLowerCase().pipe(z.string().email("Invalid email address").max(320));
 export const passwordSchema = z.string().min(8, "Password must be at least 8 characters").max(1024);
 export const nameSchema = z.string().min(1, "Name is required").max(100).trim();
 export const slugSchema = z.string().min(1, "Slug is required").max(50).regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens");

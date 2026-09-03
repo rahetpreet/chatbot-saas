@@ -9,10 +9,11 @@
     "dev": "next dev --webpack",
     "build": "prisma generate && node --require ./patch-node24.cjs ./node_modules/next/dist/bin/next build --webpack",
     "start": "next start",
-    "test": "node --test tests/",
+    "test": "tsx --test tests/*.test.ts",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:isolation": "tsx --test tests/tenant-isolation.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
