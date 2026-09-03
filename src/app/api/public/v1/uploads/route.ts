@@ -30,10 +30,12 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file");
     const conversation = await getPublicConversation(formData.get("conversationId"), formData.get("sessionToken"));
     if (!(file instanceof File) || !conversation) return NextResponse.json({ error: "Invalid upload session" }, { status: 400 });
-    // Vercel caps a serverless request body at ~4.5 MB. Larger files go
-    // straight to Blob storage from the browser via /api/public/v1/uploads/token.
+    // Vercel caps a serverless request body at ~4.5 MB, so this is the
+    // platform ceiling for an upload that passes through a route handler, not
+    // a product limit. Raising it further requires uploading straight from the
+    // browser to Blob storage, which is not wired up yet.
     if (file.size === 0) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "The file is empty." } }, { status: 400 });
-    if (file.size > 4 * 1024 * 1024) return NextResponse.json({ success: false, error: { code: "FILE_TOO_LARGE", message: "Use the direct upload endpoint for files over 4 MB." } }, { status: 413 });
+    if (file.size > 4 * 1024 * 1024) return NextResponse.json({ success: false, error: { code: "FILE_TOO_LARGE", message: "Files must be under 4 MB." } }, { status: 413 });
     if (!ALLOWED_MIME_TYPES.has(file.type)) return NextResponse.json({ error: "File type is not permitted" }, { status: 400 });
     const tenant = await prisma.tenant.findUnique({ where: { id: conversation.tenantId }, select: { widgetSettings: true } });
     const allowedDomains = parseAllowedDomains(tenant?.widgetSettings);
