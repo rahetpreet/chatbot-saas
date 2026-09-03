@@ -6,6 +6,7 @@ import { hashPublicSessionToken } from "@/lib/services/public/session";
 import { persistCapturedConversationData } from "@/lib/services/conversation/capture";
 import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
+import { readTenantAiConfig } from "@/lib/security/aiSettings";
 
 
 export async function POST(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     const visitorContent = typeof userInput.label === "string" ? userInput.label.slice(0, 500) : typeof value === "string" ? value : "Attachment uploaded";
     const visitorAttachments = isAttachment ? JSON.stringify([value]) : null;
     const nodes = JSON.parse(conversation.flow.publishedNodes || "[]"), edges = JSON.parse(conversation.flow.publishedEdges || "[]");
-    const engine = new FlowEngine(nodes, edges, conversation.tenantId, conversation.tenant.aiConfig);
+    const engine = new FlowEngine(nodes, edges, conversation.tenantId, readTenantAiConfig(conversation.tenant.aiConfig));
     let collectedData = {}; try { collectedData = JSON.parse(conversation.collectedData || "{}"); } catch { /* impossible corrupt state is treated as empty */ }
     const step = await engine.processInput({ tenantId: conversation.tenantId, currentNodeId: conversation.currentNodeId, collectedData, sessionStatus: conversation.sessionStatus as "ACTIVE", history: conversation.messages.map((message) => ({ role: (message.senderType === "BOT" || message.senderType === "AI" ? "assistant" : "user") as "assistant" | "user", content: message.content })) }, { ...userInput, type, value });
     await assertUsageAvailable(conversation.tenantId, "messages", 1 + step.botMessages.length);

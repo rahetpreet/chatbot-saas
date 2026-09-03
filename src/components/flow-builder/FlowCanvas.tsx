@@ -5,6 +5,8 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
+  BackgroundVariant,
+  MarkerType,
   Controls,
   MiniMap,
   addEdge,
@@ -157,7 +159,15 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
   const onConnect = useCallback(
     (params: Connection) => {
       setEdges((eds) => {
-        const updated = addEdge({ ...params, animated: true }, eds);
+        const updated = addEdge(
+          {
+            ...params,
+            animated: true,
+            style: { strokeWidth: 2.5, stroke: "#6366f1" },
+            markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1", width: 20, height: 20 },
+          },
+          eds,
+        );
         pushToHistory(nodes, updated);
         return updated;
       });
@@ -202,6 +212,15 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
 
   const addNode = (type: NodeType) => {
     setIsAddMenuOpen(false);
+
+    // Publishing requires exactly one start node, so refuse a second one here
+    // rather than letting the user discover it at publish time.
+    if (type === "start" && nodes.some((n: any) => (n.data?.nodeType || n.type) === "start")) {
+      setPublishErrors(["This flow already has a Start node. A flow can only have one."]);
+      setTimeout(() => setPublishErrors(null), 4000);
+      return;
+    }
+
     const id = `node-${type}-${Date.now()}`;
     const defaultLabels: Record<NodeType, string> = {
       start: "Start Trigger",
@@ -368,7 +387,25 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
             {isAddMenuOpen && (
               <div className="absolute left-0 mt-1 w-56 rounded-xl bg-white p-1.5 shadow-xl border border-slate-200 z-50 animate-fade-in text-xs">
                 <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Select Node Type
+                  Flow Boundaries
+                </div>
+                <button
+                  onClick={() => addNode("start")}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 font-medium"
+                >
+                  <Play className="w-4 h-4 text-emerald-600 fill-emerald-600" />
+                  <span>Start Node</span>
+                </button>
+                <button
+                  onClick={() => addNode("close")}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 font-medium"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-rose-600" />
+                  <span>End Node</span>
+                </button>
+
+                <div className="px-2 py-1 mt-1 border-t border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Conversation Steps
                 </div>
                 <button
                   onClick={() => addNode("message")}
@@ -496,12 +533,27 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
             fitView
             minZoom={0.2}
             maxZoom={2}
+            // Thicker, arrow-headed, high-contrast connections. The 1px default
+            // was nearly invisible against the canvas at normal zoom.
+            defaultEdgeOptions={{
+              animated: true,
+              style: { strokeWidth: 2.5, stroke: "#6366f1" },
+              markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1", width: 20, height: 20 },
+            }}
+            connectionLineStyle={{ strokeWidth: 3, stroke: "#4f46e5" }}
+            connectionRadius={40}
+            snapToGrid
+            snapGrid={[16, 16]}
+            deleteKeyCode={["Backspace", "Delete"]}
           >
-            <Background color="#cbd5e1" gap={20} size={1} />
+            <Background variant={BackgroundVariant.Dots} color="#94a3b8" gap={16} size={2} />
             <Controls className="bg-white border border-slate-200 rounded-lg shadow-sm" />
             <MiniMap
               nodeStrokeColor="#6366f1"
               nodeColor="#e0e7ff"
+              nodeStrokeWidth={3}
+              pannable
+              zoomable
               className="border border-slate-200 rounded-lg shadow-sm"
             />
           </ReactFlow>

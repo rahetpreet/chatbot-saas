@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { SMTPProvider } from "@/lib/services/email";
 import { validateRequest, smtpConfigSchema } from "@/lib/validation";
+import { SMTP_SECRET_FIELDS, decryptJsonFields, encryptJsonFields } from "@/lib/security/crypto";
 
 export async function GET(_req: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(_req: NextRequest) {
 
     if (tenant?.customSmtpConfig) {
       try {
-        const parsed = JSON.parse(tenant.customSmtpConfig);
+        const parsed = JSON.parse(decryptJsonFields(tenant.customSmtpConfig, SMTP_SECRET_FIELDS) || "{}");
         config = { ...parsed, pass: parsed.pass ? "********" : "" };
       } catch {}
     }
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { customSmtpConfig: true } });
       if (existing?.customSmtpConfig) {
         try {
-          finalPass = JSON.parse(existing.customSmtpConfig).pass;
+          finalPass = JSON.parse(decryptJsonFields(existing.customSmtpConfig, SMTP_SECRET_FIELDS) || "{}").pass;
         } catch {}
       }
     }
@@ -84,7 +85,8 @@ export async function POST(req: NextRequest) {
       from: from || user || "",
     };
 
-    const serialized = JSON.stringify(configToSave);
+    // The SMTP password is encrypted at rest rather than stored in cleartext.
+    const serialized = encryptJsonFields(JSON.stringify(configToSave), SMTP_SECRET_FIELDS)!;
 
     await prisma.$transaction([
       prisma.tenant.update({

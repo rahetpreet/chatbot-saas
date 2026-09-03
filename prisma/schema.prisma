@@ -11,26 +11,31 @@ generator client {
 // prisma db seed executes this script; bootstrap creation is idempotent.
 
 model Tenant {
-  id                  String    @id @default(cuid())
-  name                String
-  slug                String    @unique
-  status              String    @default("ACTIVE") // TRIAL, ACTIVE, PAUSED, EXPIRED, CANCELLED
-  planTier            String    @default("STARTER") // FREE, STARTER, PRO, ENTERPRISE
-  website             String?
-  industry            String?
-  logoUrl             String?
-  maxMessagesPerMonth Int       @default(5000)
-  maxFlows            Int       @default(5)
-  maxCampaignLinks    Int       @default(50)
-  maxStorageMb        Int       @default(100)
-  customSmtpConfig    String? // JSON string: host, port, user, pass, secure, from
-  aiConfig            String? // JSON string: enabled, provider, model, apiKey, systemPrompt, temperature
-  widgetSettings      String? // JSON string: primaryColor, secondaryColor, position, launcherStyle, title, subtitle, greeting, avatar, soundEnabled, allowedDomains
-  branding            String? // JSON string: logoUrl, customDomain
-  timezone            String    @default("UTC")
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  deletedAt           DateTime?
+  id                     String    @id @default(cuid())
+  name                   String
+  slug                   String    @unique
+  status                 String    @default("ACTIVE") // TRIAL, ACTIVE, PAUSED, EXPIRED, CANCELLED
+  planTier               String    @default("STARTER") // FREE, STARTER, PRO, ENTERPRISE
+  website                String?
+  industry               String?
+  logoUrl                String?
+  maxMessagesPerMonth    Int       @default(5000)
+  maxFlows               Int       @default(5)
+  maxCampaignLinks       Int       @default(50)
+  maxStorageMb           Int       @default(100)
+  customSmtpConfig       String? // JSON string: host, port, user, pass, secure, from
+  aiConfig               String? // JSON string: enabled, provider, model, apiKey, systemPrompt, temperature
+  widgetSettings         String? // JSON string: primaryColor, secondaryColor, position, launcherStyle, title, subtitle, greeting, avatar, soundEnabled, allowedDomains
+  branding               String? // JSON string: logoUrl, customDomain
+  timezone               String    @default("UTC")
+  /// Fully-qualified host serving this workspace's chat, e.g. "chat.acme.com".
+  /// Matched against the request Host header; unique across the platform
+  /// because one hostname can only route to one workspace.
+  customDomain           String?   @unique
+  customDomainVerifiedAt DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
 
   users            User[]
   memberships      TenantUser[]
@@ -54,6 +59,7 @@ model Tenant {
   visitors         Visitor[]
   trackingLinks    TrackingLink[]
   notifications    Notification[]
+  shortLinks       ShortLink[]
 
   @@index([slug])
   @@index([status])
@@ -268,6 +274,7 @@ model Campaign {
   conversations Conversation[]
   leads         Lead[]
   trackingLinks TrackingLink[]
+  shortLinks    ShortLink[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -640,4 +647,31 @@ model PasswordResetToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// A short redirect for a campaign link.
+///
+/// SMS campaigns are billed per 160-character segment, and a full tracking URL
+/// can consume most of a segment on its own. These are served from the
+/// platform's own domain (or the workspace's custom domain), so no third-party
+/// shortener and no extra cost is involved.
+model ShortLink {
+  id                String    @id @default(cuid())
+  tenantId          String
+  /// The public path segment, e.g. "aB3x9" in https://host/s/aB3x9
+  code              String    @unique
+  targetUrl         String
+  campaignId        String?
+  campaignContactId String?
+  clickCount        Int       @default(0)
+  lastClickAt       DateTime?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@index([code])
 }

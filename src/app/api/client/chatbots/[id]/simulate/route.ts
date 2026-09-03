@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
+import { readTenantAiConfig } from "@/lib/security/aiSettings";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const parsedNodes = Array.isArray(nodes) ? nodes : JSON.parse(nodes || "[]");
     const parsedEdges = Array.isArray(edges) ? edges : JSON.parse(edges || "[]");
 
-    const engine = new FlowEngine(parsedNodes, parsedEdges, tenantId, tenant?.aiConfig);
+    const engine = new FlowEngine(parsedNodes, parsedEdges, tenantId, readTenantAiConfig(tenant?.aiConfig));
 
     const currentState = state || {
       tenantId,

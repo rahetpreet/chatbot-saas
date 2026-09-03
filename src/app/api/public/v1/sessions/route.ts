@@ -5,6 +5,7 @@ import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
+import { readTenantAiConfig } from "@/lib/security/aiSettings";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
     const token = crypto.randomBytes(32).toString("base64url");
     const nodes = JSON.parse(flow.publishedNodes || "[]");
     const edges = JSON.parse(flow.publishedEdges || "[]");
-    const engine = new FlowEngine(nodes, edges, tenant.id, tenant.aiConfig);
+    const engine = new FlowEngine(nodes, edges, tenant.id, readTenantAiConfig(tenant.aiConfig));
     const step = await engine.processInput({
       tenantId: tenant.id,
       currentNodeId: null,

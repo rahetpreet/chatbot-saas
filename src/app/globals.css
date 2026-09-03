@@ -99,3 +99,87 @@ body {
   stroke: #4f46e5;
   stroke-width: 3;
 }
+
+/* ---------------------------------------------------------------------------
+   Flow builder legibility.
+
+   The library defaults are 6px connection dots and 1px edges, which are hard
+   to hit with a mouse and hard to see against the canvas. These override the
+   imported @xyflow/react stylesheet.
+   --------------------------------------------------------------------------- */
+
+.react-flow__handle {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 3px solid #6366f1;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.25);
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.35);
+  background: #6366f1;
+  border-color: #4338ca;
+  cursor: crosshair;
+}
+
+.react-flow__handle-top    { top: -8px; }
+.react-flow__handle-bottom { bottom: -8px; }
+.react-flow__handle-left   { left: -8px; }
+.react-flow__handle-right  { right: -8px; }
+
+/* A connection in progress should be unmistakable. */
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto {
+  background: #22c55e;
+  border-color: #15803d;
+  transform: scale(1.45);
+}
+
+.react-flow__edge-path {
+  stroke-width: 2.5;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 4;
+  stroke: #4338ca;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #4338ca;
+  stroke-width: 4;
+}
+
+/* Widens the clickable area without changing the drawn line. */
+.react-flow__edge-interaction {
+  stroke-width: 24;
+}
+
+.react-flow__edge-text {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #334155;
+}
+
+.react-flow__edge-textbg {
+  fill: #ffffff;
+}
+
+.react-flow__node.selected > * {
+  outline: 2px solid #6366f1;
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+.react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.react-flow__controls-button svg {
+  width: 14px;
+  height: 14px;
+}

@@ -209,7 +209,7 @@ export function FlowSimulatorModal({ isOpen, onClose, flowId, nodes, edges, tena
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" />
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]" />
-                <span>Bot thinking...</span>
+                <span>Assistant is typing...</span>
               </div>
             )}
 

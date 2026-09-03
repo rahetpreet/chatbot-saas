@@ -32,7 +32,8 @@ const FORBIDDEN_EXTENSIONS = [
   ".vbs", ".msi", ".jar", ".dll", ".scr", ".ps1", ".htaccess",
 ];
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// Applies to direct-to-Blob uploads, which do not pass through a lambda.
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /**
  * Produces an unguessable storage key. The original filename is only used for

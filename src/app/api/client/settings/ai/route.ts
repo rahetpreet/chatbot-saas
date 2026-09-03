@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { validateRequest, aiConfigSchema } from "@/lib/validation";
+import { AI_SECRET_FIELDS, decryptJsonFields, encryptJsonFields, getPlatformAiSummary } from "@/lib/security/aiSettings";
 
 export async function GET(_req: NextRequest) {
   try {
@@ -25,12 +26,19 @@ export async function GET(_req: NextRequest) {
 
     if (tenant?.aiConfig) {
       try {
-        const parsed = JSON.parse(tenant.aiConfig);
+        const parsed = JSON.parse(decryptJsonFields(tenant.aiConfig, AI_SECRET_FIELDS) || "{}");
+        // The key itself is never returned; the placeholder tells the form a
+        // key exists so it can be left untouched on save.
         config = { ...config, ...parsed, apiKey: parsed.apiKey ? "********" : "" };
       } catch {}
     }
 
-    return NextResponse.json({ success: true, config });
+    // A workspace with no key of its own still gets AI when the platform has
+    // one configured, and the dashboard should say so rather than implying
+    // that AI is unavailable.
+    const platform = getPlatformAiSummary();
+
+    return NextResponse.json({ success: true, config, platform, data: { config, platform } });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: error.message || "Failed to get AI settings." } }, { status: 401 });
   }
@@ -49,7 +57,7 @@ export async function POST(req: NextRequest) {
       const existing = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiConfig: true } });
       if (existing?.aiConfig) {
         try {
-          finalApiKey = JSON.parse(existing.aiConfig).apiKey;
+          finalApiKey = JSON.parse(decryptJsonFields(existing.aiConfig, AI_SECRET_FIELDS) || "{}").apiKey;
         } catch {}
       }
     }
@@ -65,7 +73,9 @@ export async function POST(req: NextRequest) {
       confidenceThreshold: validation.data.confidenceThreshold,
     };
 
-    const serialized = JSON.stringify(configToSave);
+    // The API key is encrypted at rest; the column previously held it in
+    // cleartext, readable by anyone with database access.
+    const serialized = encryptJsonFields(JSON.stringify(configToSave), AI_SECRET_FIELDS)!;
 
     await prisma.$transaction([
       prisma.tenant.update({

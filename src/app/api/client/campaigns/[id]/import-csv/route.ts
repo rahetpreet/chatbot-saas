@@ -16,7 +16,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let textToParse = "";
 
     if (file) {
-      if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: "CSV file exceeds the 5 MB limit" }, { status: 400 });
+      // Vercel caps a serverless request body at ~4.5 MB, so this is the
+      // platform ceiling rather than a product limit. Roughly 60,000 contact
+      // rows fit inside it.
+      if (file.size > 4 * 1024 * 1024) return NextResponse.json({ success: false, error: { code: "FILE_TOO_LARGE", message: "CSV must be under 4 MB per upload. Split larger files and import them in batches." } }, { status: 413 });
       const buffer = await file.arrayBuffer();
       textToParse = Buffer.from(buffer).toString("utf-8");
     } else if (csvContent) {
@@ -43,7 +46,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const rows = parsed.data as Array<Record<string, string>>;
-    if (rows.length > 2_000) return NextResponse.json({ error: "CSV import is limited to 2,000 rows" }, { status: 400 });
     await assertUsageAvailable(tenantId, "campaigns", rows.length);
     const createdContacts = [];
 

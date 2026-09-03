@@ -12,8 +12,27 @@ import {
   Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { headers } from "next/headers";
+import { resolveTenantByHost } from "@/lib/services/tenant/domainResolver";
+import { CampaignChatContent } from "@/components/chat/HostedChat";
 
-export default function HomePage() {
+/**
+ * The root route is shared between the marketing site and any workspace that
+ * has connected its own hostname. Resolving here rather than in middleware
+ * keeps the lookup on the Node runtime, where Prisma can reach the database.
+ */
+export default async function RootPage() {
+  const host = (await headers()).get("host");
+  const tenant = await resolveTenantByHost(host);
+
+  // A connected custom domain serves that workspace's chat at the root, with
+  // no /c/<slug> path, so the white-labelling is complete.
+  if (tenant) return <CampaignChatContent tenantSlug={tenant.slug} />;
+
+  return <MarketingHome />;
+}
+
+function MarketingHome() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
       {/* Navigation */}
