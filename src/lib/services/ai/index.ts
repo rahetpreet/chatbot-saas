@@ -172,10 +172,25 @@ type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 interface HostedProviderSpec {
   endpoint: string;
   defaultModel: string;
-  buildBody(model: string, system: string, history: ChatMessage[], query: string, temperature: number): unknown;
+  buildBody(
+    model: string,
+    system: string,
+    history: ChatMessage[],
+    query: string,
+    temperature: number,
+    json: boolean,
+  ): unknown;
   buildHeaders(apiKey: string): Record<string, string>;
   extract(payload: any): string;
 }
+
+/**
+ * Generous, because current Gemini and Groq models spend output tokens on
+ * internal reasoning before writing anything. A flow graph plus that reasoning
+ * did not fit in 4096, so replies came back truncated mid-JSON and were
+ * discarded as invalid — which looked exactly like the AI producing nonsense.
+ */
+const MAX_OUTPUT_TOKENS = 16384;
 
 const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
   // Google AI Studio. Free key at https://aistudio.google.com/apikey
@@ -187,7 +202,7 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
     // workspace the day it is retired.
     defaultModel: "gemini-flash-latest",
     buildHeaders: () => ({ "Content-Type": "application/json" }),
-    buildBody: (_model, system, history, query, temperature) => ({
+    buildBody: (_model, system, history, query, temperature, json) => ({
       systemInstruction: { parts: [{ text: system }] },
       contents: [
         ...history.map((message) => ({
@@ -197,7 +212,13 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
         })),
         { role: "user", parts: [{ text: query }] },
       ],
-      generationConfig: { temperature, maxOutputTokens: 4096 },
+      generationConfig: {
+        temperature,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        // Constrained decoding is far more reliable than asking for JSON in
+        // the prompt: the model cannot emit prose or code fences at all.
+        ...(json ? { responseMimeType: "application/json" } : {}),
+      },
     }),
     extract: (payload) =>
       (payload?.candidates?.[0]?.content?.parts || [])
@@ -210,10 +231,12 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     defaultModel: "llama-3.3-70b-versatile",
     buildHeaders: (apiKey) => ({ "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }),
-    buildBody: (model, system, history, query, temperature) => ({
+    buildBody: (model, system, history, query, temperature, json) => ({
       model,
       messages: [{ role: "system", content: system }, ...history, { role: "user", content: query }],
       temperature,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      ...(json ? { response_format: { type: "json_object" } } : {}),
     }),
     extract: (payload) => payload?.choices?.[0]?.message?.content?.trim() || "",
   },
@@ -222,16 +245,25 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
     endpoint: "https://openrouter.ai/api/v1/chat/completions",
     defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
     buildHeaders: (apiKey) => ({ "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }),
-    buildBody: (model, system, history, query, temperature) => ({
+    buildBody: (model, system, history, query, temperature, json) => ({
       model,
       messages: [{ role: "system", content: system }, ...history, { role: "user", content: query }],
       temperature,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      ...(json ? { response_format: { type: "json_object" } } : {}),
     }),
     extract: (payload) => payload?.choices?.[0]?.message?.content?.trim() || "",
   },
 };
 
 export const SUPPORTED_AI_PROVIDERS = Object.keys(HOSTED_PROVIDERS);
+
+/** Load-shedding and rate limiting, as opposed to a request that is just wrong. */
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [800, 2200];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class HostedAIProvider implements AIProvider {
   private config: AIConfig;
@@ -246,28 +278,58 @@ export class HostedAIProvider implements AIProvider {
       : spec.endpoint;
   }
 
-  /** Raw completion with no knowledge-base injection. Used by flow generation. */
-  async complete(params: { system: string; user: string; temperature?: number }): Promise<string> {
+  /**
+   * Raw completion with no knowledge-base injection. Used by flow generation.
+   *
+   * Free tiers rate-limit and shed load: Gemini in particular returns 503
+   * "experiencing high demand" fairly often. A single attempt meant one busy
+   * moment silently dropped the request to the rule-based fallback, which
+   * produced a plausible-looking but wrong flow with no indication why. These
+   * statuses are retried with backoff; genuine errors (a bad key, an unknown
+   * model) are not, because retrying those only wastes the caller's time.
+   */
+  async complete(params: { system: string; user: string; temperature?: number; json?: boolean }): Promise<string> {
     const spec = HOSTED_PROVIDERS[this.config.provider];
     if (!spec || !this.config.apiKey) throw new Error("AI provider is not configured.");
 
     const model = this.config.model || spec.defaultModel;
     const temperature = params.temperature ?? this.config.temperature ?? 0.7;
+    const body = JSON.stringify(
+      spec.buildBody(model, params.system, [], params.user, temperature, params.json ?? false),
+    );
 
-    const response = await fetch(this.urlFor(model, spec), {
-      method: "POST",
-      headers: spec.buildHeaders(this.config.apiKey),
-      body: JSON.stringify(spec.buildBody(model, params.system, [], params.user, temperature)),
-      // Flow generation is interactive; a stalled provider must not hang the
-      // request until the platform's own timeout.
-      signal: AbortSignal.timeout(45_000),
-    });
+    let lastError = "";
+    for (let attempt = 0; attempt < RETRYABLE_ATTEMPTS; attempt++) {
+      if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
 
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`${this.config.provider} HTTP ${response.status}: ${detail.slice(0, 300)}`);
+      try {
+        const response = await fetch(this.urlFor(model, spec), {
+          method: "POST",
+          headers: spec.buildHeaders(this.config.apiKey),
+          body,
+          // Flow generation is interactive; a stalled provider must not hang
+          // the request until the platform's own timeout.
+          signal: AbortSignal.timeout(45_000),
+        });
+
+        if (response.ok) return spec.extract(await response.json());
+
+        const detail = await response.text().catch(() => "");
+        lastError = `${this.config.provider} HTTP ${response.status}: ${detail.slice(0, 300)}`;
+        if (!RETRYABLE_STATUSES.has(response.status)) throw new Error(lastError);
+        console.warn(`[ai] ${lastError} — retrying (${attempt + 1}/${RETRYABLE_ATTEMPTS})`);
+      } catch (error: any) {
+        // A timeout or dropped connection is worth another go; anything else
+        // has already been classified as fatal above.
+        const transient = error?.name === "TimeoutError" || error?.name === "AbortError" || RETRYABLE_STATUSES.has(0);
+        lastError = error?.message || String(error);
+        if (!transient && !lastError.includes("HTTP")) throw error;
+        if (!transient) throw error;
+        console.warn(`[ai] ${lastError} — retrying (${attempt + 1}/${RETRYABLE_ATTEMPTS})`);
+      }
     }
-    return spec.extract(await response.json());
+
+    throw new Error(lastError || "AI request failed after retries.");
   }
 
   async ask(params: {
@@ -295,7 +357,7 @@ export class HostedAIProvider implements AIProvider {
         method: "POST",
         headers: spec.buildHeaders(this.config.apiKey),
         body: JSON.stringify(
-          spec.buildBody(model, system, params.conversationHistory || [], sanitizedQuery, this.config.temperature ?? 0.7),
+          spec.buildBody(model, system, params.conversationHistory || [], sanitizedQuery, this.config.temperature ?? 0.7, false),
         ),
         signal: AbortSignal.timeout(20_000),
       });

@@ -237,3 +237,70 @@ test("an unverified custom domain falls back to the platform link", () => {
   assert.equal(url.hostname, "platform.test");
   assert.equal(url.pathname, "/c/acme");
 });
+
+import { normalizeGeneratedGraph, extractJsonObject, buildFlowUserPrompt } from "../src/lib/services/flow/aiGenerator";
+
+test("generated graphs are repaired rather than discarded", () => {
+  // Models produce the right shape but not always a valid graph. Publishing
+  // rejects an invalid one, so an unrepaired generation is worthless.
+  const graph = normalizeGeneratedGraph({
+    name: "Test",
+    nodes: [
+      { id: "a", data: { nodeType: "message", messageText: "hi" } }, // no start node
+      { id: "b", data: { nodeType: "input" } }, // no inputKey
+      { id: "c", data: { nodeType: "buttons", options: [{ label: "Yes" }] } }, // option has no id
+      { id: "a", data: { nodeType: "message" } }, // duplicate id
+    ],
+    edges: [
+      { source: "a", target: "b" },
+      { source: "a", target: "ghost" }, // target does not exist
+    ],
+  })!;
+
+  assert.ok(graph, "a repairable graph must not be rejected");
+
+  const starts = graph.nodes.filter((n: any) => n.data.nodeType === "start");
+  assert.equal(starts.length, 1, "exactly one start node must be present");
+
+  const ids = graph.nodes.map((n: any) => n.id);
+  assert.equal(new Set(ids).size, ids.length, "duplicate ids must be removed");
+
+  const input = graph.nodes.find((n: any) => n.data.nodeType === "input") as any;
+  assert.ok(input.data.inputKey, "an input node without a key cannot be published");
+
+  const buttons = graph.nodes.find((n: any) => n.data.nodeType === "buttons") as any;
+  assert.equal(buttons.data.options[0].id, "opt-1", "options need ids to be branch targets");
+
+  for (const edge of graph.edges) {
+    assert.ok(ids.includes(edge.source) && ids.includes(edge.target), "edges must reference real nodes");
+  }
+  assert.ok(
+    graph.edges.some((e: any) => e.source === starts[0].id),
+    "a start node connected to nothing produces a bot that never speaks",
+  );
+});
+
+test("hopeless payloads are rejected so the fallback can take over", () => {
+  assert.equal(normalizeGeneratedGraph(null), null);
+  assert.equal(normalizeGeneratedGraph({ nodes: "not an array", edges: [] }), null);
+  assert.equal(normalizeGeneratedGraph({ nodes: [{ id: "only" }], edges: [] }), null);
+});
+
+test("JSON is recovered from prose and code fences", () => {
+  assert.deepEqual(extractJsonObject('```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepEqual(extractJsonObject('Sure! Here is the flow:\n{"a":1}\nHope that helps.'), { a: 1 });
+  assert.equal(extractJsonObject("no json at all"), null);
+  assert.equal(extractJsonObject(""), null);
+  // Truncated output must not throw; it is rejected so the fallback runs.
+  assert.equal(extractJsonObject('{"nodes":[{"id":"a"'), null);
+});
+
+test("the flow prompt does not push retail language onto non-retail businesses", () => {
+  const prompt = buildFlowUserPrompt("We run a maths coaching centre for class 9 to 12", "Bright Minds");
+  assert.match(prompt, /Bright Minds/);
+  assert.match(prompt, /coaching centre/);
+  // Wording regression: asking for "products, services or intents" produced
+  // ordering flows for businesses that sell nothing.
+  assert.match(prompt, /reasons someone would contact/i);
+  assert.match(prompt, /unless the description is about selling goods/i);
+});

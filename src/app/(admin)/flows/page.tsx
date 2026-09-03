@@ -136,8 +136,27 @@ export default function FlowsListingPage() {
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        setAiError(data.error || "Failed to generate AI flow");
+        setAiError(
+          typeof data.error === "string" ? data.error : data.error?.message || "Failed to generate AI flow",
+        );
         setGenerating(false);
+        return;
+      }
+
+      // The API always returns a flow: if the model was unreachable it falls
+      // back to a keyword-based template. Saying so matters, because that
+      // fallback produces confident but generic copy, and users reasonably
+      // assumed the AI had written it and judged the AI on it.
+      if (data.generatedBy !== "ai") {
+        setAiError(
+          `The AI service did not respond${data.aiError ? ` (${data.aiError})` : ""}, so a basic starter flow was created instead. ` +
+            `Your Gemini free tier is often busy at peak times — deleting this flow and generating again usually works.`,
+        );
+        setGenerating(false);
+        // The flow still exists, so let them read the notice before leaving.
+        setTimeout(() => {
+          window.location.href = `/flows/${data.flow.id}/builder`;
+        }, 6000);
         return;
       }
 
