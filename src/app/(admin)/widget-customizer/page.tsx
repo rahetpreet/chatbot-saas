@@ -27,6 +27,8 @@ export default function WidgetCustomizerPage() {
     botSubtitle: "Typically replies instantly",
     avatarUrl: "https://api.dicebear.com/7.x/bottts/svg?seed=Acme",
     launcherStyle: "bubble",
+    launcherIconUrl: "",
+    launcherLabel: "Chat with us",
     launcherPosition: "bottom-right",
     greetingBadge: "👋 Have questions? Chat with us!",
     showGreetingBadge: true,
@@ -175,6 +177,42 @@ export default function WidgetCustomizerPage() {
                 onChange={(e) => setSettings({ ...settings, avatarUrl: e.target.value })}
                 placeholder="https://example.com/avatar.png"
               />
+
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Launcher button on your website
+                </p>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Launcher style</label>
+                  <select
+                    value={settings.launcherStyle}
+                    onChange={(e) => setSettings({ ...settings, launcherStyle: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="bubble">Chat bubble icon (default)</option>
+                    <option value="avatar">Your avatar image</option>
+                    <option value="label">Icon with a text label</option>
+                  </select>
+                </div>
+
+                <Input
+                  label="Launcher Icon URL (optional)"
+                  value={settings.launcherIconUrl}
+                  onChange={(e) => setSettings({ ...settings, launcherIconUrl: e.target.value })}
+                  placeholder="https://example.com/logo.png"
+                  helperText="Overrides the icon on the floating button. Leave blank to use the avatar or the default bubble."
+                />
+
+                {settings.launcherStyle === "label" && (
+                  <Input
+                    label="Launcher Label"
+                    value={settings.launcherLabel}
+                    onChange={(e) => setSettings({ ...settings, launcherLabel: e.target.value })}
+                    placeholder="Chat with us"
+                  />
+                )}
+              </div>
 
               <Input
                 label="Greeting Badge Text"

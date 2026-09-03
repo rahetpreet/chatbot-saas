@@ -32,6 +32,7 @@ export default function CampaignsPage() {
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [shorteningLinks, setShorteningLinks] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
 
   // Form states
@@ -181,22 +182,26 @@ export default function CampaignsPage() {
     setTimeout(() => setCopySuccess(null), 2000);
   };
 
-  const handleExportContacts = async () => {
+  const handleExportContacts = async (withShortLinks = false) => {
     if (!selectedCampaign) return;
+    if (withShortLinks) setShorteningLinks(true);
     try {
-      const res = await fetch(`/api/client/campaigns/${selectedCampaign.id}/export-contacts`);
-      if (!res.ok) throw new Error('Export failed');
+      const query = withShortLinks ? "?short=1" : "";
+      const res = await fetch(`/api/client/campaigns/${selectedCampaign.id}/export-contacts${query}`);
+      if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `${selectedCampaign.slug}-contacts.csv`;
+      a.download = `${selectedCampaign.slug}-contacts${withShortLinks ? "-short" : ""}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch {
-      alert('Failed to export contacts');
+      alert("Failed to export contacts. Please try again.");
+    } finally {
+      setShorteningLinks(false);
     }
   };
 
@@ -307,11 +312,24 @@ export default function CampaignsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleExportContacts}
+                      onClick={() => handleExportContacts(false)}
                       className="gap-1.5 text-xs font-semibold"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Export Contacts</span>
+                    </Button>
+                  )}
+                  {(selectedCampaign.contacts || []).length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={shorteningLinks}
+                      onClick={() => handleExportContacts(true)}
+                      className="gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
+                      title="Exports the same contacts with a short link per row, sized for SMS"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>{shorteningLinks ? "Shortening…" : "Export + Short Links"}</span>
                     </Button>
                   )}
                   <Button

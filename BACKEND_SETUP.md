@@ -145,3 +145,91 @@ everything afterwards.
 - Every private route derives `tenantId` from the session. No route reads it
   from the request body or query string, and a static test enforces this.
 - Rate limits are stored in Postgres so they hold across serverless instances.
+
+---
+
+## AI
+
+The product works fully with AI switched off — flows are rule-based. Turning AI
+on lets an `AI Fallback` node answer free-text questions, and lets the dashboard
+generate a whole flow from a plain-language description.
+
+One **platform key serves every workspace**, so clients do not each need to
+bring their own. Set two variables:
+
+```bash
+AI_PROVIDER=gemini
+AI_API_KEY=your-key-here
+```
+
+Free keys, in the order worth trying:
+
+| Provider | Where | Notes |
+|---|---|---|
+| `gemini` | https://aistudio.google.com/apikey | Best quality on the free tier. Default model `gemini-2.0-flash`. |
+| `groq` | https://console.groq.com/keys | Fastest responses. Default model `llama-3.3-70b-versatile`. |
+| `openrouter` | https://openrouter.ai/keys | `:free` model slugs need no billing setup at all. |
+| `ollama` | self-hosted | Local development only — never point this at localhost in production. |
+
+A workspace that saves its own key in **Settings → AI** overrides the platform
+key. A workspace that explicitly switches AI off stays off regardless.
+
+Flow generation asks the model for a strict JSON graph, then repairs and
+validates it before saving: a missing start node, duplicate starts, edges
+pointing at nodes that do not exist, button nodes with no options and input
+nodes with no key are all corrected. If the model is unreachable or returns
+something unusable, a deterministic compiler produces a flow instead, and the
+response says which one was used.
+
+---
+
+## Custom chat domains
+
+A workspace can serve its chat from its own hostname (`chat.acme.com`) rather
+than `yourplatform.com/c/acme`. In **Settings → Custom Domain** the client
+enters the hostname and is shown the exact DNS record to create — a `CNAME` for
+a subdomain, or an `A` record for an apex domain, which cannot use CNAME.
+
+Two things have to happen:
+
+1. **The client** creates the DNS record at their registrar.
+2. **You** add that hostname under **Vercel → Project → Settings → Domains**, so
+   the TLS certificate is issued. Until this is done the browser will warn about
+   the certificate even after DNS resolves.
+
+The **Verify now** button performs a live request to the domain rather than
+trusting a stored flag, so a domain that later stops resolving stops reporting
+itself as verified.
+
+Set `PLATFORM_DOMAIN` if the platform is reachable on a hostname other than
+`APP_URL`, so it is never mistaken for a customer domain.
+
+---
+
+## Short links for SMS campaigns
+
+An SMS is billed per 160-character segment, and a full tracking URL can consume
+most of one. **Campaigns → Export + Short Links** produces the normal contact
+CSV plus a `/s/<code>` link per row and its character count, so you can see at a
+glance whether a message fits in one segment.
+
+Codes avoid visually ambiguous characters (`0/O/1/l/I`), and re-exporting a
+campaign reuses the existing link for the same target rather than minting a new
+one — links already sent to recipients keep working. Clicks are counted without
+blocking the redirect. No third-party shortener is involved, so no external
+service ever sees your recipient list.
+
+---
+
+## Plan limits
+
+Usage quotas and feature gating are **disabled**. `assertUsageAvailable` and
+`assertTenantFeature` in `src/lib/services/subscription/planLimits.ts` no longer
+cap anything, so there is no message limit, flow limit or contact limit.
+
+Workspace *status* is still enforced: a `PAUSED`, `EXPIRED` or `CANCELLED`
+workspace stops working, because that is how an operator suspends an account.
+
+Every call site already routes through those two functions, so re-enabling
+quotas later is a change to one file. Consumption is still recorded in
+`UsageRecord`, so the history exists whenever you do want to bill on it.

@@ -547,6 +547,50 @@
     }, 4000);
   }
 
+  var DEFAULT_LAUNCHER_SVG =
+    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character];
+    });
+  }
+
+  /**
+   * Applies the workspace's launcher appearance. The button previously always
+   * rendered a fixed chat-bubble icon, so the avatar and launcher style chosen
+   * in the dashboard were never visible on the customer's site.
+   */
+  function applyLauncherAppearance(config) {
+    if (!launcherBtn) return;
+
+    var style = config.launcherStyle || "bubble";
+    var iconUrl = config.launcherIconUrl || (style === "avatar" ? config.avatarUrl : null);
+    var label = config.launcherLabel || "";
+
+    var inner = "";
+    if (iconUrl) {
+      inner +=
+        '<img src="' + escapeHtml(iconUrl) + '" alt="" ' +
+        'style="width:28px;height:28px;border-radius:50%;object-fit:cover;display:block;" ' +
+        // A broken image URL must not leave an empty button.
+        'onerror="this.remove()" />';
+    } else {
+      inner += DEFAULT_LAUNCHER_SVG;
+    }
+
+    if (style === "label" && label) {
+      inner += '<span style="margin-left:8px;font-weight:600;font-size:14px;white-space:nowrap;">' + escapeHtml(label) + "</span>";
+      launcherBtn.style.width = "auto";
+      launcherBtn.style.padding = "0 18px";
+      launcherBtn.style.borderRadius = "999px";
+    }
+
+    launcherBtn.innerHTML = inner;
+    launcherBtn.setAttribute("aria-label", label || config.botName || "Open chat");
+  }
+
   // Load Configuration & Theme
   async function loadConfig() {
     try {
@@ -559,6 +603,8 @@
         botAvatar.src = widgetConfig.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=" + tenantSlug;
         botName.textContent = widgetConfig.botName || "Assistant";
         botSubtitle.innerHTML = `<span class="status-dot"></span> ${widgetConfig.botSubtitle || "Replies instantly"}`;
+
+        applyLauncherAppearance(widgetConfig);
 
         if (widgetConfig.launcherPosition === "bottom-left") {
           widgetContainer.classList.add("pos-bottom-left");

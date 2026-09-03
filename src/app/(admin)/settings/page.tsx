@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
+import { CustomDomainPanel } from "@/components/settings/CustomDomainPanel";
 import {
   Mail,
   Sparkles,
@@ -16,13 +17,15 @@ import {
   Save,
   CheckCircle2,
   Cpu,
+  Globe,
   ShieldCheck,
   KeyRound,
   Lock,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"smtp" | "ai" | "knowledge" | "security">("smtp");
+  const [activeTab, setActiveTab] = useState<"smtp" | "ai" | "knowledge" | "domain" | "security">("smtp");
+  const [aiPlatform, setAiPlatform] = useState<{ available: boolean; provider: string | null; model: string | null } | null>(null);
 
   // Security & Password state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -80,6 +83,7 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.config) setAiConfig(d.config);
+        if (d.platform) setAiPlatform(d.platform);
       });
 
     // Load Knowledge Docs
@@ -280,6 +284,16 @@ export default function SettingsPage() {
         >
           <BookOpen className="w-4 h-4" />
           <span>FAQ Knowledge Base ({knowledgeDocs.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("domain")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+            activeTab === "domain" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          <span>Custom Domain</span>
         </button>
 
         <button
@@ -496,6 +510,16 @@ export default function SettingsPage() {
                   />
                 </div>
 
+                {aiPlatform?.available && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+                    <p className="font-bold">AI is already available on this workspace</p>
+                    <p className="text-[11px] mt-0.5">
+                      The platform provides {aiPlatform.provider} ({aiPlatform.model}). Just switch the toggle on — you
+                      only need your own API key if you want to use a different model or bill it separately.
+                    </p>
+                  </div>
+                )}
+
                 {aiConfig.enabled && (
                   <>
                     <div className="grid grid-cols-2 gap-4">
@@ -506,10 +530,11 @@ export default function SettingsPage() {
                           onChange={(e) => setAiConfig({ ...aiConfig, provider: e.target.value as any })}
                           className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-medium"
                         >
-                          <option value="ollama">Ollama (100% Free Local AI)</option>
-                          <option value="groq">Groq (Free Tier API)</option>
-                          <option value="openrouter">OpenRouter (Free Open-Source Models)</option>
-                          <option value="disabled">Disabled / Pure Rule-Based Only</option>
+                          <option value="gemini">Google Gemini (free tier — recommended)</option>
+                          <option value="groq">Groq (free tier — fastest)</option>
+                          <option value="openrouter">OpenRouter (free open-source models)</option>
+                          <option value="ollama">Ollama (self-hosted, local only)</option>
+                          <option value="disabled">Disabled — rule-based flows only</option>
                         </select>
                       </div>
 
@@ -671,6 +696,8 @@ export default function SettingsPage() {
       )}
 
       {/* TAB 4: Security & Password */}
+      {activeTab === "domain" && <CustomDomainPanel />}
+
       {activeTab === "security" && (
         <div className="space-y-4 animate-fade-in">
           <Card>
