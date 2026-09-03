@@ -2,6 +2,7 @@ node_modules
 .next
 .env*
 !.env.example
+!.env.vercel.example
 !.env.production.example
 dev.db
 dev.db-journal

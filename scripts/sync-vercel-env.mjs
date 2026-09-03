@@ -94,11 +94,49 @@ function preview(key, value) {
   return value;
 }
 
-const env = parseEnvFile(".env");
+/**
+ * Production values live in .env.vercel; .env stays your local development
+ * file. Keeping them apart is what stops a localhost URL or the console email
+ * recorder being pushed to a live site. .env.vercel wins per key, and .env
+ * fills in anything it does not define.
+ */
+const localEnv = parseEnvFile(".env");
+const prodEnv = parseEnvFile(".env.vercel");
+const env = { ...localEnv, ...prodEnv };
+
+if (Object.keys(prodEnv).length === 0) {
+  console.log("\nNote: no .env.vercel found, so values are read from .env.");
+  console.log("Copy .env.vercel.example to .env.vercel and fill it in for production values.");
+}
 
 const push = [];
 const blocked = [];
 const missing = [];
+
+/**
+ * Cross-field checks. A setting can be individually valid but wrong in
+ * combination — "use SMTP" with no password is the worst kind, because email
+ * then fails silently and users are told to check an inbox nothing arrives in.
+ */
+const CROSS_CHECKS = {
+  EMAIL_PROVIDER: (value) =>
+    value === "smtp" &&
+    !env.SMTP_PASSWORD &&
+    "set to 'smtp' but SMTP_PASSWORD is empty, so no email would ever be delivered",
+};
+
+/**
+ * Not wrong, just worth knowing. BLOB_READ_WRITE_TOKEN, for instance, is
+ * injected by Vercel and never exists locally, so its absence here says
+ * nothing about whether storage will work.
+ */
+const CROSS_WARNINGS = {
+  STORAGE_PROVIDER: (value) =>
+    value === "blob" &&
+    "uploads need a Blob store: Vercel dashboard -> Storage -> Blob -> Create, then connect it to this project",
+};
+
+const warnings = [];
 
 for (const entry of SYNCED) {
   const value = env[entry.key];
@@ -106,9 +144,14 @@ for (const entry of SYNCED) {
     missing.push(entry);
     continue;
   }
-  const rejection = entry.rejectIf?.(value);
-  if (rejection) blocked.push({ ...entry, rejection });
-  else push.push(entry);
+  const rejection = entry.rejectIf?.(value) || CROSS_CHECKS[entry.key]?.(value);
+  if (rejection) {
+    blocked.push({ ...entry, rejection });
+    continue;
+  }
+  const warning = CROSS_WARNINGS[entry.key]?.(value);
+  if (warning) warnings.push(`${entry.key}: ${warning}`);
+  push.push(entry);
 }
 
 console.log(`\nReading .env — ${push.length} ready to push, ${blocked.length} blocked, ${missing.length} not set.\n`);
@@ -116,7 +159,7 @@ console.log(`\nReading .env — ${push.length} ready to push, ${blocked.length} 
 for (const { key } of push) console.log(`  push     ${key.padEnd(18)} ${preview(key, env[key])}`);
 
 if (blocked.length) {
-  console.log("\n  These are development values and would break production:");
+  console.log("\n  Not pushed — these would break the live site:");
   for (const { key, rejection } of blocked) console.log(`  SKIP     ${key.padEnd(18)} ${rejection}`);
 }
 
@@ -126,7 +169,12 @@ if (missing.length) {
 }
 
 if (env.AI_PROVIDER && !["disabled", "ollama"].includes(env.AI_PROVIDER) && !env.AI_API_KEY) {
-  console.log(`\n  ! AI_PROVIDER is '${env.AI_PROVIDER}' but AI_API_KEY is empty — AI falls back to rule-based replies.`);
+  warnings.push(`AI_PROVIDER is '${env.AI_PROVIDER}' but AI_API_KEY is empty — AI falls back to rule-based replies`);
+}
+
+if (warnings.length) {
+  console.log("\n  Worth knowing:");
+  for (const warning of warnings) console.log(`  ! ${warning}`);
 }
 
 if (!APPLY) {
