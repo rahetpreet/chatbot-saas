@@ -44,7 +44,7 @@ export default function FlowsListingPage() {
   const fetchFlows = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/flows");
+      const res = await fetch("/api/client/chatbots");
       const data = await res.json();
       setFlows(data.flows || []);
     } catch {
@@ -75,7 +75,7 @@ export default function FlowsListingPage() {
     setCreating(true);
 
     try {
-      const res = await fetch("/api/flows", {
+      const res = await fetch("/api/client/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newFlowName, description: newFlowDesc }),
@@ -101,7 +101,7 @@ export default function FlowsListingPage() {
 
   const handleSetDefault = async (flowId: string) => {
     try {
-      await fetch(`/api/flows/${flowId}`, {
+      await fetch(`/api/client/chatbots/${flowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isDefault: true }),
@@ -115,7 +115,7 @@ export default function FlowsListingPage() {
   const handleDeleteFlow = async (flowId: string) => {
     if (!confirm("Are you sure you want to delete this flow?")) return;
     try {
-      await fetch(`/api/flows/${flowId}`, { method: "DELETE" });
+      await fetch(`/api/client/chatbots/${flowId}`, { method: "DELETE" });
       fetchFlows();
     } catch {
       alert("Failed to delete flow");
@@ -128,7 +128,7 @@ export default function FlowsListingPage() {
     setGenerating(true);
 
     try {
-      const res = await fetch("/api/flows/generate", {
+      const res = await fetch("/api/client/chatbots/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: aiPrompt }),

@@ -1,62 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { FlowRepository } from "@/lib/repositories/flowRepository";
 import { requireTenantRole } from "@/lib/services/auth/session";
+import { validateFlowGraph } from "@/lib/services/flow/validation";
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const { id } = await params;
-
-    const flow = await FlowRepository.findById(tenantId, id);
-    if (!flow) {
-      return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Chatbot not found" } }, { status: 404 });
-    }
-
-    // Validate flow structure
-    let nodes, edges;
-    try {
-      nodes = JSON.parse(flow.nodes);
-      edges = JSON.parse(flow.edges);
-    } catch {
-      return NextResponse.json({ success: false, error: { code: "INVALID_FLOW", message: "Invalid flow structure" } }, { status: 400 });
-    }
-
-    // Basic validation
-    if (!Array.isArray(nodes) || !Array.isArray(edges)) {
-      return NextResponse.json({ success: false, error: { code: "INVALID_FLOW", message: "Flow must have valid nodes and edges" } }, { status: 400 });
-    }
-
-    const hasStartNode = nodes.some((node: any) => node.type === "start");
-    if (!hasStartNode) {
-      return NextResponse.json({ success: false, error: { code: "INVALID_FLOW", message: "Flow must have a start node" } }, { status: 400 });
-    }
-
-    // Publish the flow
-    const updatedFlow = await prisma.$transaction(async (tx) => {
-      const updated = await tx.flow.update({
-        where: { id },
-        data: {
-          status: "PUBLISHED",
-          publishedNodes: flow.nodes,
-          publishedEdges: flow.edges,
-        },
+    const flow = await prisma.flow.findFirst({ where: { id, tenantId, deletedAt: null } });
+    if (!flow) return NextResponse.json({ error: "Flow not found" }, { status: 404 });
+    const errors = validateFlowGraph(JSON.parse(flow.nodes), JSON.parse(flow.edges));
+    if (errors.length) return NextResponse.json({ error: "Flow validation failed", details: errors }, { status: 400 });
+    const updated = await prisma.$transaction(async (tx) => {
+      const existingDefault = await tx.flow.findFirst({
+        where: { tenantId, id: { not: id }, status: "PUBLISHED", isDefault: true, deletedAt: null },
+        select: { id: true },
       });
-
-      await tx.auditLog.create({
-        data: {
-          tenantId,
-          userId: session.userId,
-          action: "BOT_PUBLISHED",
-          details: JSON.stringify({ flowId: id, name: updated.name }),
-        },
-      });
-
-      return updated;
+      // A tenant's first published flow must be usable immediately. Existing
+      // default selections remain unchanged unless this flow was selected as
+      // the default while it was still a draft.
+      const shouldBecomeDefault = flow.isDefault || !existingDefault;
+      if (shouldBecomeDefault) {
+        await tx.flow.updateMany({ where: { tenantId, id: { not: id }, isDefault: true }, data: { isDefault: false } });
+      }
+      const published = await tx.flow.update({ where: { id }, data: { status: "PUBLISHED", version: flow.version + 1, publishedNodes: flow.nodes, publishedEdges: flow.edges, isDefault: shouldBecomeDefault } });
+      await tx.auditLog.create({ data: { tenantId, userId: session.userId, action: "FLOW_PUBLISHED", details: JSON.stringify({ flowId: id, version: published.version }) } });
+      return published;
     });
-
-    return NextResponse.json({ success: true, data: { chatbot: updatedFlow }, chatbot: updatedFlow });
+    return NextResponse.json({ success: true, message: `Flow version ${updated.version} published successfully.`, flow: updated });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to publish chatbot" } }, { status: 400 });
+    return NextResponse.json({ error: error.message || "Publish failed" }, { status: 400 });
   }
 }

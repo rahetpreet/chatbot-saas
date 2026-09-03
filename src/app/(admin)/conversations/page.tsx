@@ -36,7 +36,7 @@ function LiveConversationsInbox() {
 
   const fetchConversations = async (autoSelectId?: string) => {
     try {
-      let url = "/api/conversations";
+      let url = "/api/client/conversations";
       if (statusFilter !== "ALL") url += `?status=${statusFilter}`;
       const res = await fetch(url);
       const data = await res.json();
@@ -58,7 +58,7 @@ function LiveConversationsInbox() {
 
   const loadConversationDetails = async (id: string) => {
     try {
-      const res = await fetch(`/api/conversations/${id}`);
+      const res = await fetch(`/api/client/conversations/${id}`);
       const data = await res.json();
       if (data.conversation) {
         setSelectedConversation(data.conversation);
@@ -93,7 +93,7 @@ function LiveConversationsInbox() {
     setReplyText("");
 
     try {
-      const res = await fetch(`/api/conversations/${selectedConversation.id}/messages`, {
+      const res = await fetch(`/api/client/conversations/${selectedConversation.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -113,7 +113,7 @@ function LiveConversationsInbox() {
   const handleResolveSession = async () => {
     if (!selectedConversation) return;
     try {
-      await fetch(`/api/conversations/${selectedConversation.id}`, {
+      await fetch(`/api/client/conversations/${selectedConversation.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionStatus: "RESOLVED" }),
@@ -266,7 +266,7 @@ function LiveConversationsInbox() {
 
                   {/* PDF Download Button */}
                   <a
-                    href={`/api/conversations/${selectedConversation.id}/export?format=pdf`}
+                    href={`/api/client/conversations/${selectedConversation.id}/export?format=pdf`}
                     download={`transcript_${selectedConversation.id}.pdf`}
                     className="inline-flex items-center gap-1.5 px-3 h-8 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-xs"
                     title="Export transcript as PDF"

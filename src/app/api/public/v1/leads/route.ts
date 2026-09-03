@@ -3,8 +3,10 @@ import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { hashPublicSessionToken } from "@/lib/services/public/session";
 import { validateRequest, publicLeadSchema } from "@/lib/validation";
+import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!(await checkRateLimit(`public-lead:${ip}`, 20, 60_000))) {
     return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } }, { status: 429 });
@@ -26,9 +28,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Session not found." } }, { status: 404 });
     }
 
-    const normalizedEmail = email;
-    const cleanPhone = phone;
-    const cleanName = name;
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: conversation.tenantId },
+      select: { widgetSettings: true },
+    });
+    const allowedDomains = parseAllowedDomains(tenant?.widgetSettings);
+    if (!isAllowedPublicOrigin(origin, allowedDomains)) {
+      return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Origin is not allowed." } }, { status: 403 });
+    }
+
+    // Normalising here is what makes contact de-duplication work: the same
+    // person typing "A@B.com " and "a@b.com" must resolve to one contact.
+    const normalizedEmail = email ? email.trim().toLowerCase() : email;
+    const cleanPhone = phone ? phone.replace(/[^d+]/g, "") || null : phone;
+    const cleanName = name ? name.trim() : name;
 
     // Lead capture transaction: find or update contact, create lead, link conversation
     const result = await prisma.$transaction(async (tx) => {
@@ -91,8 +104,16 @@ export async function POST(req: NextRequest) {
       return { lead, contact };
     });
 
-    return NextResponse.json({ success: true, data: { leadId: result.lead.id } });
+    return withPublicCors(
+      NextResponse.json({ success: true, data: { leadId: result.lead.id } }),
+      origin,
+      allowedDomains,
+    );
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: error.message || "Failed to submit lead" } }, { status: 400 });
   }
+}
+
+export function OPTIONS(req: NextRequest) {
+  return publicCorsPreflight(req.headers.get("origin"));
 }

@@ -40,7 +40,7 @@ export default function WidgetCustomizerPage() {
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/settings/widget")
+    fetch("/api/client/settings/widget")
       .then((res) => res.json())
       .then((data) => {
         if (data.tenant?.slug) setTenantSlug(data.tenant.slug);
@@ -54,7 +54,7 @@ export default function WidgetCustomizerPage() {
     setSaving(true);
     setSaveSuccess(false);
     try {
-      const res = await fetch("/api/settings/widget", {
+      const res = await fetch("/api/client/settings/widget", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),

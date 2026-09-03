@@ -438,7 +438,7 @@
     sendBtn.disabled = true;
 
     try {
-      const res = await fetch(`${baseUrl}/api/widget/message`, {
+      const res = await fetch(`${baseUrl}/api/public/v1/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -481,7 +481,7 @@
   // Initialize Session
   async function initSession() {
     try {
-      const res = await fetch(`${baseUrl}/api/widget/session`, {
+      const res = await fetch(`${baseUrl}/api/public/v1/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -530,7 +530,7 @@
     pollInterval = setInterval(async () => {
       if (!conversationId || !sessionToken || !isOpen) return;
       try {
-        const res = await fetch(`${baseUrl}/api/widget/sync?conversationId=${encodeURIComponent(conversationId)}&sessionToken=${encodeURIComponent(sessionToken)}`);
+        const res = await fetch(`${baseUrl}/api/public/v1/sync?conversationId=${encodeURIComponent(conversationId)}&sessionToken=${encodeURIComponent(sessionToken)}`);
         const data = await res.json();
         if (data.success && data.messages) {
           const currentCount = messagesBody.querySelectorAll(".msg-row").length;
@@ -550,7 +550,7 @@
   // Load Configuration & Theme
   async function loadConfig() {
     try {
-      const res = await fetch(`${baseUrl}/api/widget/config?tenantSlug=${tenantSlug}`);
+      const res = await fetch(`${baseUrl}/api/public/v1/config?tenantSlug=${tenantSlug}`);
       const data = await res.json();
       const widget = data.widget || data.data?.widget;
       if (data.success && widget) {
@@ -608,7 +608,7 @@
 
     showTypingIndicator();
     try {
-      const res = await fetch(`${baseUrl}/api/widget/upload`, {
+      const res = await fetch(`${baseUrl}/api/public/v1/uploads`, {
         method: "POST",
         body: formData,
       });

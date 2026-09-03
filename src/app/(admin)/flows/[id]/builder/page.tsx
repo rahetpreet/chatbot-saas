@@ -14,7 +14,7 @@ export default function FlowBuilderPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/flows/${resolvedParams.id}`)
+    fetch(`/api/client/chatbots/${resolvedParams.id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load flow");
         return res.json();

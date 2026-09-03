@@ -27,10 +27,10 @@ export default function DashboardOverviewPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/flows").then((r) => r.json()),
-      fetch("/api/conversations").then((r) => r.json()),
-      fetch("/api/leads").then((r) => r.json()),
-      fetch("/api/campaigns").then((r) => r.json()),
+      fetch("/api/client/chatbots").then((r) => r.json()),
+      fetch("/api/client/conversations").then((r) => r.json()),
+      fetch("/api/client/leads").then((r) => r.json()),
+      fetch("/api/client/campaigns").then((r) => r.json()),
     ])
       .then(([f, c, l, cmp]) => {
         setFlows(f.flows || []);

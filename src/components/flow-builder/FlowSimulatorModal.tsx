@@ -51,7 +51,7 @@ export function FlowSimulatorModal({ isOpen, onClose, flowId, nodes, edges, tena
     setLoading(true);
 
     try {
-      const res = await fetch(`/api/flows/${flowId}/simulate`, {
+      const res = await fetch(`/api/client/chatbots/${flowId}/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -100,7 +100,7 @@ export function FlowSimulatorModal({ isOpen, onClose, flowId, nodes, edges, tena
     setInputValue("");
 
     try {
-      const res = await fetch(`/api/flows/${flowId}/simulate`, {
+      const res = await fetch(`/api/client/chatbots/${flowId}/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

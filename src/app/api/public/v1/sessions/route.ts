@@ -3,28 +3,51 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { FlowEngine } from "@/lib/services/engine/flowEngine";
 import { checkRateLimit } from "@/lib/security/rateLimit";
-import { validateRequest, publicSessionSchema } from "@/lib/validation";
+import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
+const UTM_KEYS = ["utmSource", "utmMedium", "utmCampaign", "utmContent", "utmTerm"] as const;
+
+/** Accepts only the five known UTM keys, as trimmed short strings. */
+function parseUtm(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of UTM_KEYS) {
+    const raw = source[key];
+    if (typeof raw === "string" && raw.trim()) out[key] = raw.trim().slice(0, 256);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!(await checkRateLimit(`public-session:${ip}`, 30, 60_000))) {
-    return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests. Please slow down." } }, { status: 429 });
+    return NextResponse.json({ success: false, error: { code: "RATE_LIMITED", message: "Too many requests." } }, { status: 429 });
   }
 
   try {
     const body = await req.json();
-    const validation = await validateRequest(publicSessionSchema, body);
-    if (!validation.success) return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: validation.error } }, { status: 400 });
-    
-    const { tenantSlug, visitorId, flowId, campaignContactId, referrer } = validation.data;
+    const tenantSlug = typeof body.tenantSlug === "string" ? body.tenantSlug : "";
+    const visitorId = typeof body.visitorId === "string" ? body.visitorId.slice(0, 128) : "";
+    const contactSlug = typeof body.contactSlug === "string" ? body.contactSlug : undefined;
+    const flowId = typeof body.flowId === "string" ? body.flowId : undefined;
+    const campaignSlug = typeof body.campaignSlug === "string" ? body.campaignSlug : undefined;
+    const utm = parseUtm(body.utm);
+
+    if (!tenantSlug || !visitorId) {
+      return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid tenant and visitor identifiers are required." } }, { status: 400 });
+    }
 
     const tenant = await prisma.tenant.findFirst({
       where: { slug: tenantSlug, status: { in: ["TRIAL", "ACTIVE"] }, deletedAt: null },
       select: {
         id: true,
         aiConfig: true,
+        widgetSettings: true,
         flows: {
           where: flowId
             ? { id: flowId, status: "PUBLISHED", deletedAt: null }
@@ -36,7 +59,50 @@ export async function POST(req: NextRequest) {
 
     const flow = tenant?.flows[0];
     if (!tenant || !flow) {
-      return NextResponse.json({ success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is currently unavailable." } }, { status: 404 });
+      return NextResponse.json({ success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is unavailable." } }, { status: 404 });
+    }
+    const allowedDomains = parseAllowedDomains(tenant.widgetSettings);
+    if (!isAllowedPublicOrigin(origin, allowedDomains)) {
+      return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: "Origin is not allowed." } }, { status: 403 });
+    }
+
+    let campaignContactId: string | null = null;
+    let campaignId: string | null = null;
+
+    if (contactSlug) {
+      const campaignContact = await prisma.campaignContact.findFirst({
+        where: { customUrlSlug: contactSlug, tenantId: tenant.id, deletedAt: null },
+      });
+      if (campaignContact) {
+        campaignContactId = campaignContact.id;
+        await prisma.campaignContact.update({
+          where: { id: campaignContact.id },
+          data: {
+            opensCount: { increment: 1 },
+            firstOpenedAt: campaignContact.firstOpenedAt || new Date(),
+            lastOpenedAt: new Date(),
+            status: "OPENED",
+          },
+        });
+        campaignId = campaignContact.campaignId;
+      }
+    }
+
+    // Campaign-level links (/c/<slug>?campaign=X) carry no contact, so they
+    // were previously dropped entirely and campaign stats never moved.
+    if (!campaignId && campaignSlug) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { slug: campaignSlug, tenantId: tenant.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (campaign) campaignId = campaign.id;
+    }
+
+    if (campaignId) {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { opensCount: { increment: 1 } },
+      });
     }
 
     const token = crypto.randomBytes(32).toString("base64url");
@@ -50,22 +116,24 @@ export async function POST(req: NextRequest) {
       sessionStatus: "ACTIVE",
       history: [],
     });
+    await assertUsageAvailable(tenant.id, "messages", step.botMessages.length);
 
     const conversation = await prisma.$transaction(async (tx) => {
       const created = await tx.conversation.create({
         data: {
           tenantId: tenant.id,
           flowId: flow.id,
-          campaignContactId: campaignContactId || null,
+          campaignContactId,
+          campaignId,
           visitorId,
           publicSessionTokenHash: hash(token),
           sessionStatus: step.sessionStatus,
           currentNodeId: step.currentNodeId,
           collectedData: JSON.stringify(step.updatedCollectedData),
           visitorInfo: JSON.stringify({
-            referrer: referrer || null,
-            ip,
-            userAgent: req.headers.get("user-agent") || null,
+            referrer: typeof body.referrer === "string" ? body.referrer.slice(0, 2048) : null,
+            device: body.device || null,
+            utm,
           }),
         },
       });
@@ -107,8 +175,12 @@ export async function POST(req: NextRequest) {
       interactiveNode: step.interactiveNode,
     };
 
-    return NextResponse.json({ success: true, data });
+    return withPublicCors(NextResponse.json({ success: true, ...data, data }), origin, allowedDomains);
   } catch {
     return NextResponse.json({ success: false, error: { code: "INVALID_REQUEST", message: "Unable to start a chat session." } }, { status: 400 });
   }
+}
+
+export function OPTIONS(req: NextRequest) {
+  return publicCorsPreflight(req.headers.get("origin"));
 }

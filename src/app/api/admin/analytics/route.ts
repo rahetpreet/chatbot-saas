@@ -7,43 +7,45 @@ export async function GET(_req: NextRequest) {
     await requireSuperAdmin();
 
     const [
-      tenantsByPlan,
-      tenantsByStatus,
-      recentEvents,
-      monthlyConversations,
+      totalTenants,
+      activeTenants,
+      totalUsers,
+      totalFlows,
+      totalConversations,
+      totalMessages,
+      totalLeads,
+      recentAuditLogs,
     ] = await Promise.all([
-      prisma.tenant.groupBy({
-        by: ["planTier"],
-        _count: { id: true },
-        where: { deletedAt: null },
-      }),
-      prisma.tenant.groupBy({
-        by: ["status"],
-        _count: { id: true },
-        where: { deletedAt: null },
-      }),
-      prisma.analyticsEvent.findMany({
-        take: 50,
+      prisma.tenant.count({ where: { deletedAt: null } }),
+      prisma.tenant.count({ where: { status: "ACTIVE", deletedAt: null } }),
+      prisma.user.count({ where: { deletedAt: null } }),
+      prisma.flow.count({ where: { deletedAt: null } }),
+      prisma.conversation.count(),
+      prisma.message.count(),
+      prisma.lead.count({ where: { deletedAt: null } }),
+      prisma.auditLog.findMany({
+        take: 10,
         orderBy: { timestamp: "desc" },
         include: {
           tenant: { select: { name: true, slug: true } },
-        },
-      }),
-      prisma.conversation.count({
-        where: {
-          startedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+          user: { select: { email: true, name: true } },
         },
       }),
     ]);
 
     return NextResponse.json({
       success: true,
-      data: {
-        tenantsByPlan,
-        tenantsByStatus,
-        monthlyConversations,
-        recentEvents,
+      metrics: {
+        totalTenants,
+        activeTenants,
+        totalUsers,
+        totalFlows,
+        totalConversations,
+        totalMessages,
+        totalLeads,
+        estimatedStorageMb: Math.round(totalConversations * 0.05 + totalMessages * 0.005),
       },
+      recentAuditLogs,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: { code: "FORBIDDEN", message: error.message || "Super Admin access required." } }, { status: 403 });

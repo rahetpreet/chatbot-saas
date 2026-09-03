@@ -16,7 +16,7 @@ export default function LeadsPage() {
   const fetchLeads = async () => {
     setLoading(true);
     try {
-      let url = "/api/leads";
+      let url = "/api/client/leads";
       if (statusFilter !== "ALL") url += `?status=${statusFilter}`;
       const res = await fetch(url);
       const data = await res.json();
@@ -34,7 +34,7 @@ export default function LeadsPage() {
 
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
-      await fetch("/api/leads", {
+      await fetch("/api/client/leads", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status }),
@@ -48,7 +48,7 @@ export default function LeadsPage() {
   const handleDeleteLead = async (id: string) => {
     if (!confirm("Delete this lead record?")) return;
     try {
-      await fetch(`/api/leads?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/client/leads?id=${id}`, { method: "DELETE" });
       fetchLeads();
     } catch {
       alert("Failed to delete lead");
@@ -77,7 +77,7 @@ export default function LeadsPage() {
         <div className="flex items-center gap-2">
           {/* CSV Export */}
           <a
-            href="/api/leads/export?format=csv"
+            href="/api/client/leads/export?format=csv"
             download={`leads_${Date.now()}.csv`}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm"
           >
@@ -87,7 +87,7 @@ export default function LeadsPage() {
 
           {/* JSON Export */}
           <a
-            href="/api/leads/export?format=json"
+            href="/api/client/leads/export?format=json"
             download={`leads_${Date.now()}.json`}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 transition-colors shadow-xs"
           >

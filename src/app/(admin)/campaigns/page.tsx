@@ -50,8 +50,8 @@ export default function CampaignsPage() {
     setLoading(true);
     try {
       const [campRes, flowsRes] = await Promise.all([
-        fetch("/api/campaigns"),
-        fetch("/api/flows"),
+        fetch("/api/client/campaigns"),
+        fetch("/api/client/chatbots"),
       ]);
       const campData = await campRes.json();
       const flowsData = await flowsRes.json();
@@ -70,7 +70,7 @@ export default function CampaignsPage() {
 
   const loadCampaignDetails = async (id: string) => {
     try {
-      const res = await fetch(`/api/campaigns/${id}`);
+      const res = await fetch(`/api/client/campaigns/${id}`);
       const data = await res.json();
       if (data.campaign) {
         setSelectedCampaign(data.campaign);
@@ -98,7 +98,7 @@ export default function CampaignsPage() {
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/campaigns", {
+      const res = await fetch("/api/client/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -136,7 +136,7 @@ export default function CampaignsPage() {
         return;
       }
 
-      const res = await fetch(`/api/campaigns/${selectedCampaign.id}/import-csv`, {
+      const res = await fetch(`/api/client/campaigns/${selectedCampaign.id}/import-csv`, {
         method: "POST",
         body: formData,
       });
@@ -161,7 +161,7 @@ export default function CampaignsPage() {
   const openQrModal = async (campaignId: string, contactSlug?: string) => {
     setQrContactSlug(contactSlug || null);
     try {
-      let url = `/api/campaigns/${campaignId}/qr`;
+      let url = `/api/client/campaigns/${campaignId}/qr`;
       if (contactSlug) url += `?contactSlug=${contactSlug}`;
       const res = await fetch(url);
       const data = await res.json();
@@ -184,7 +184,7 @@ export default function CampaignsPage() {
   const handleExportContacts = async () => {
     if (!selectedCampaign) return;
     try {
-      const res = await fetch(`/api/campaigns/${selectedCampaign.id}/export-contacts`);
+      const res = await fetch(`/api/client/campaigns/${selectedCampaign.id}/export-contacts`);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -545,7 +545,7 @@ export default function CampaignsPage() {
 
             {selectedCampaign && (
               <a
-                href={`/api/campaigns/${selectedCampaign.id}/qr?format=svg${qrContactSlug ? `&contactSlug=${qrContactSlug}` : ""}`}
+                href={`/api/client/campaigns/${selectedCampaign.id}/qr?format=svg${qrContactSlug ? `&contactSlug=${qrContactSlug}` : ""}`}
                 download={`qr_${selectedCampaign.slug}.svg`}
                 className="flex-1 inline-flex items-center justify-center gap-2 p-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-sm"
               >

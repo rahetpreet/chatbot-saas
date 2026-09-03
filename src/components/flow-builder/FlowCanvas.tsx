@@ -259,7 +259,7 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
     setSaving(true);
     setSaveSuccessMsg(null);
     try {
-      const res = await fetch(`/api/flows/${initialFlow.id}`, {
+      const res = await fetch(`/api/client/chatbots/${initialFlow.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -283,7 +283,7 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
     setPublishing(true);
     try {
       // Save draft first
-      await fetch(`/api/flows/${initialFlow.id}`, {
+      await fetch(`/api/client/chatbots/${initialFlow.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -293,7 +293,7 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
       });
 
       // Publish snapshot
-      const res = await fetch(`/api/flows/${initialFlow.id}/publish`, {
+      const res = await fetch(`/api/client/chatbots/${initialFlow.id}/publish`, {
         method: "POST",
       });
 

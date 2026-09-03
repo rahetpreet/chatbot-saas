@@ -41,7 +41,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
     setFatalError(null);
     try {
       // 1. Fetch tenant widget configuration
-      const configRes = await fetch(`/api/widget/config?tenantSlug=${tenantSlug}`);
+      const configRes = await fetch(`/api/public/v1/config?tenantSlug=${tenantSlug}`);
       const configData = await configRes.json();
       const widget = configData.widget || configData.data?.widget;
       if (configData.success && widget) {
@@ -57,7 +57,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
       }
 
       // 3. Initialize / Restore session
-      const sessionRes = await fetch("/api/widget/session", {
+      const sessionRes = await fetch("/api/public/v1/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,7 +126,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
     setInputValue("");
 
     try {
-      const res = await fetch("/api/widget/message", {
+      const res = await fetch("/api/public/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -186,7 +186,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
 
     setLoading(true);
     try {
-      const res = await fetch("/api/widget/upload", {
+      const res = await fetch("/api/public/v1/uploads", {
         method: "POST",
         body: formData,
       });

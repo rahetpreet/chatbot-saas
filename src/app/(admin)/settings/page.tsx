@@ -69,14 +69,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     // Load SMTP
-    fetch("/api/settings/smtp")
+    fetch("/api/client/settings/smtp")
       .then((r) => r.json())
       .then((d) => {
         if (d.config) setSmtpConfig(d.config);
       });
 
     // Load AI
-    fetch("/api/settings/ai")
+    fetch("/api/client/settings/ai")
       .then((r) => r.json())
       .then((d) => {
         if (d.config) setAiConfig(d.config);
@@ -88,7 +88,7 @@ export default function SettingsPage() {
 
   const fetchKnowledgeDocs = async () => {
     try {
-      const res = await fetch("/api/settings/knowledge");
+      const res = await fetch("/api/client/settings/knowledge");
       const data = await res.json();
       setKnowledgeDocs(data.docs || []);
     } catch {
@@ -102,7 +102,7 @@ export default function SettingsPage() {
     setSavingSmtp(true);
     setSmtpFeedback(null);
     try {
-      const res = await fetch("/api/settings/smtp", {
+      const res = await fetch("/api/client/settings/smtp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(smtpConfig),
@@ -129,7 +129,7 @@ export default function SettingsPage() {
     setTestingSmtp(true);
     setSmtpFeedback(null);
     try {
-      const res = await fetch("/api/settings/smtp", {
+      const res = await fetch("/api/client/settings/smtp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...smtpConfig, testEmail }),
@@ -153,7 +153,7 @@ export default function SettingsPage() {
     setSavingAi(true);
     setAiFeedback(null);
     try {
-      const res = await fetch("/api/settings/ai", {
+      const res = await fetch("/api/client/settings/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(aiConfig),
@@ -176,7 +176,7 @@ export default function SettingsPage() {
     e.preventDefault();
     setAddingDoc(true);
     try {
-      const res = await fetch("/api/settings/knowledge", {
+      const res = await fetch("/api/client/settings/knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -201,7 +201,7 @@ export default function SettingsPage() {
   const handleDeleteKnowledgeDoc = async (id: string) => {
     if (!confirm("Delete this knowledge entry?")) return;
     try {
-      await fetch(`/api/settings/knowledge?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/client/settings/knowledge?id=${id}`, { method: "DELETE" });
       fetchKnowledgeDocs();
     } catch {
       alert("Failed to delete doc");

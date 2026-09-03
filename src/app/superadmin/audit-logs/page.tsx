@@ -13,7 +13,7 @@ export default function SuperAdminAuditLogsPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/superadmin/audit-logs");
+      const res = await fetch("/api/admin/audit-logs");
       const data = await res.json();
       setLogs(data.logs || []);
     } catch {
