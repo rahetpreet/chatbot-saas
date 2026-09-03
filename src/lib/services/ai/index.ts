@@ -181,7 +181,11 @@ const HOSTED_PROVIDERS: Record<string, HostedProviderSpec> = {
   // Google AI Studio. Free key at https://aistudio.google.com/apikey
   gemini: {
     endpoint: "https://generativelanguage.googleapis.com/v1beta/models",
-    defaultModel: "gemini-2.0-flash",
+    // A floating alias rather than a pinned version. Google retires numbered
+    // Gemini models, and gemini-2.0-flash had already started returning 404
+    // "no longer available" -- a pinned default silently breaks AI for every
+    // workspace the day it is retired.
+    defaultModel: "gemini-flash-latest",
     buildHeaders: () => ({ "Content-Type": "application/json" }),
     buildBody: (_model, system, history, query, temperature) => ({
       systemInstruction: { parts: [{ text: system }] },
