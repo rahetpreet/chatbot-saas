@@ -9,6 +9,8 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
   const searchParams = useSearchParams();
   const campaignSlug = searchParams.get("campaign") || "";
   const contactSlug = searchParams.get("contact") || "";
+  // Set by /t/<token>; identifies the exact link this visitor arrived through.
+  const trackingToken = searchParams.get("t") || "";
   const flowParam = searchParams.get("flow") || searchParams.get("flowId") || initialFlowId || "";
 
   const [widgetConfig, setWidgetConfig] = useState<any>(null);
@@ -34,7 +36,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
 
   useEffect(() => {
     initializeChat();
-  }, [tenantSlug, campaignSlug, contactSlug, flowParam]);
+  }, [tenantSlug, campaignSlug, contactSlug, flowParam, trackingToken]);
 
   const initializeChat = async () => {
     setIsInitializing(true);
@@ -65,6 +67,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
           visitorId,
           campaignSlug,
           contactSlug,
+          trackingToken,
           referrer: document.referrer,
           device: window.innerWidth < 768 ? "mobile" : "desktop",
           flowId: flowParam || undefined,
@@ -175,32 +178,63 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
     }
   };
 
+  // Vercel caps a serverless request body at ~4.5 MB, so anything approaching
+  // that has to go straight from the browser to Blob storage instead of
+  // through a route handler.
+  const DIRECT_UPLOAD_THRESHOLD = 4 * 1024 * 1024;
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset the input so selecting the same file twice still fires a change.
+    e.target.value = "";
     if (!file || !conversationId || !sessionToken) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("tenantSlug", tenantSlug);
-    formData.append("conversationId", conversationId);
-    formData.append("sessionToken", sessionToken);
 
     setLoading(true);
     try {
-      const res = await fetch("/api/public/v1/uploads", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.success && data.file) {
+      let uploaded: { id?: string; url: string; name: string; size: number; type: string } | null = null;
+
+      if (file.size > DIRECT_UPLOAD_THRESHOLD) {
+        const { upload } = await import("@vercel/blob/client");
+        const blob = await upload(file.name, file, {
+          access: "public",
+          handleUploadUrl: "/api/public/v1/uploads/token",
+          clientPayload: JSON.stringify({ conversationId, sessionToken }),
+        });
+        uploaded = { url: blob.url, name: file.name, size: file.size, type: file.type };
+      } else {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("tenantSlug", tenantSlug);
+        formData.append("conversationId", conversationId);
+        formData.append("sessionToken", sessionToken);
+
+        const res = await fetch("/api/public/v1/uploads", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!data.success || !data.file) {
+          throw new Error(data.error?.message || "Upload failed.");
+        }
+        uploaded = data.file;
+      }
+
+      if (uploaded) {
         handleSendMessage({
           type: "attachment_upload",
-          value: data.file,
-          label: `📎 Uploaded ${data.file.name}`,
+          value: uploaded,
+          label: `📎 Uploaded ${uploaded.name}`,
         });
       }
-    } catch {
-      alert("File upload failed.");
+    } catch (error: any) {
+      // Surfaced in the transcript rather than an alert, so it reads as part
+      // of the conversation.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: "err-" + Date.now(),
+          senderType: "SYSTEM",
+          content: error?.message || "That file could not be uploaded.",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }

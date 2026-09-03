@@ -130,3 +130,110 @@ test("usage limits are not enforced", async () => {
   assert.equal(typeof assertUsageAvailable, "function");
   assert.equal(assertUsageAvailable.length <= 3, true);
 });
+
+import { normalizeEmail, normalizeName, normalizePhone } from "../src/lib/services/contact/normalize";
+import { generateTrackingToken, trackingRedirectUrl } from "../src/lib/services/tracking";
+
+test("phone normalisation keeps the number, not just the plus", () => {
+  // Regression: a mangled character class once reduced every number to "+",
+  // silently destroying imported and captured phone numbers.
+  assert.equal(normalizePhone("+1 (555) 010-2030"), "+15550102030");
+  assert.equal(normalizePhone("555.010.2030"), "5550102030");
+  assert.equal(normalizePhone("  0044 20 7946 0958 "), "+442079460958");
+  assert.equal(normalizePhone("+91-98765 43210"), "+919876543210");
+
+  // The same number written differently must compare equal.
+  assert.equal(normalizePhone("(555) 010 2030"), normalizePhone("555-010-2030"));
+
+  assert.equal(normalizePhone("not a number"), null);
+  assert.equal(normalizePhone(""), null);
+  assert.equal(normalizePhone(null), null);
+});
+
+test("email and name normalisation make de-duplication work", () => {
+  assert.equal(normalizeEmail("  Person@Example.COM "), "person@example.com");
+  assert.equal(normalizeEmail(""), null);
+  assert.equal(normalizeName("  John   Smith  "), "John Smith");
+  assert.equal(normalizeName("   "), null);
+});
+
+test("tracking tokens are random and unambiguous", () => {
+  const tokens = new Set<string>();
+  for (let i = 0; i < 500; i++) tokens.add(generateTrackingToken());
+  assert.equal(tokens.size, 500, "tokens must not repeat");
+
+  const token = generateTrackingToken();
+  assert.equal(token.length, 10);
+  // Characters that are easy to confuse when read aloud or retyped.
+  assert.equal(/[0O1lI]/.test(token), false, `token ${token} contains an ambiguous character`);
+});
+
+test("tracking redirect carries full attribution", () => {
+  const url = new URL(
+    trackingRedirectUrl(
+      {
+        id: "tl_1",
+        token: "aBcDeF1234".replace(/[0O1lI]/g, "x"),
+        tenantSlug: "acme",
+        customDomain: null,
+        customDomainVerified: false,
+        campaignSlug: "spring",
+        contactSlug: "jane-abc123",
+        flowId: "flow_1",
+        utm: { utm_source: "sms" },
+      },
+      "https://platform.test",
+    ),
+  );
+
+  assert.equal(url.pathname, "/c/acme");
+  assert.equal(url.searchParams.get("campaign"), "spring");
+  assert.equal(url.searchParams.get("contact"), "jane-abc123");
+  assert.equal(url.searchParams.get("utm_source"), "sms");
+  assert.ok(url.searchParams.get("t"), "the token must survive so the conversation can be attributed");
+});
+
+test("a verified custom domain serves the chat at its own root", () => {
+  const url = new URL(
+    trackingRedirectUrl(
+      {
+        id: "tl_2",
+        token: "aBcDeFghjk",
+        tenantSlug: "acme",
+        customDomain: "chat.acme.com",
+        customDomainVerified: true,
+        campaignSlug: "spring",
+        contactSlug: null,
+        flowId: null,
+        utm: {},
+      },
+      "https://platform.test",
+    ),
+  );
+
+  assert.equal(url.hostname, "chat.acme.com");
+  assert.equal(url.pathname, "/", "a white-labelled domain must not expose /c/<slug>");
+});
+
+test("an unverified custom domain falls back to the platform link", () => {
+  const url = new URL(
+    trackingRedirectUrl(
+      {
+        id: "tl_3",
+        token: "aBcDeFghjk",
+        tenantSlug: "acme",
+        customDomain: "chat.acme.com",
+        customDomainVerified: false,
+        campaignSlug: null,
+        contactSlug: null,
+        flowId: null,
+        utm: {},
+      },
+      "https://platform.test",
+    ),
+  );
+
+  // Sending traffic to a domain without a certificate would show a browser warning.
+  assert.equal(url.hostname, "platform.test");
+  assert.equal(url.pathname, "/c/acme");
+});

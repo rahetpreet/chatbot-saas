@@ -6,6 +6,7 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 import { readTenantAiConfig } from "@/lib/security/aiSettings";
+import { recordTrackingConversation } from "@/lib/services/tracking";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
     const contactSlug = typeof body.contactSlug === "string" ? body.contactSlug : undefined;
     const flowId = typeof body.flowId === "string" ? body.flowId : undefined;
     const campaignSlug = typeof body.campaignSlug === "string" ? body.campaignSlug : undefined;
+    const trackingToken = typeof body.trackingToken === "string" ? body.trackingToken.slice(0, 64) : undefined;
     const utm = parseUtm(body.utm);
 
     if (!tenantSlug || !visitorId) {
@@ -99,7 +101,25 @@ export async function POST(req: NextRequest) {
       if (campaign) campaignId = campaign.id;
     }
 
-    if (campaignId) {
+    // A tracking link is the most specific attribution available, so it wins
+    // over a bare campaign slug and also fills in the campaign when present.
+    let trackingLinkId: string | null = null;
+    if (trackingToken) {
+      trackingLinkId = await recordTrackingConversation(trackingToken, tenant.id);
+      if (trackingLinkId && !campaignId) {
+        const owner = await prisma.trackingLink.findUnique({
+          where: { id: trackingLinkId },
+          select: { campaignId: true, campaignContactId: true },
+        });
+        if (owner?.campaignId) campaignId = owner.campaignId;
+        if (owner?.campaignContactId && !campaignContactId) campaignContactId = owner.campaignContactId;
+      }
+    }
+
+    // Only count the open here when the visitor did NOT arrive through a
+    // tracking link. /t/<token> already counted it at redirect time, and
+    // counting again made a single click show as two opens.
+    if (campaignId && !trackingLinkId) {
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { opensCount: { increment: 1 } },
@@ -139,6 +159,7 @@ export async function POST(req: NextRequest) {
           flowId: flow.id,
           campaignContactId,
           campaignId,
+          trackingLinkId,
           visitorId,
           visitorRecordId: visitor.id,
           publicSessionTokenHash: hash(token),

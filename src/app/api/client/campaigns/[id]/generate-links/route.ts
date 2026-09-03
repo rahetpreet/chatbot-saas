@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantRole } from "@/lib/services/auth/session";
 import { slugify, generateRandomId } from "@/lib/utils";
+import { createTrackingLinks } from "@/lib/services/tracking";
+import { getAppUrl } from "@/lib/appUrl";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -50,6 +52,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       createdLinks.push(campaignContact);
     }
 
+    // Every generated recipient gets a first-class TrackingLink, so opens,
+    // conversations and conversions are counted per link rather than only per
+    // campaign. The /t/<token> URL is what actually goes out in a message.
+    let campaignMeta: Record<string, unknown> = {};
+    try {
+      campaignMeta = campaign.metadata ? JSON.parse(campaign.metadata) : {};
+    } catch {
+      /* metadata is optional and free-form */
+    }
+
+    const trackingLinks = await createTrackingLinks(
+      createdLinks.map((contact) => ({
+        tenantId,
+        campaignId,
+        campaignContactId: contact.id,
+        flowId: campaign.flowId,
+        utmSource: (campaignMeta.utmSource as string) || "campaign",
+        utmMedium: (campaignMeta.utmMedium as string) || null,
+        utmCampaign: (campaignMeta.utmCampaign as string) || campaign.slug,
+      })),
+    );
+
+    const origin = getAppUrl() || "";
+    const links = createdLinks.map((contact, index) => ({
+      ...contact,
+      trackingToken: trackingLinks[index]?.token ?? null,
+      trackingUrl: trackingLinks[index] ? `${origin}/t/${trackingLinks[index].token}` : null,
+    }));
+
     await prisma.auditLog.create({
       data: {
         tenantId,
@@ -62,8 +93,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({
       success: true,
       data: {
-        count: createdLinks.length,
-        links: createdLinks,
+        count: links.length,
+        links,
       },
       message: `Generated ${createdLinks.length} tracking links.`,
     });

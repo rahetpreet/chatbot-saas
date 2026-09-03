@@ -4,6 +4,8 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import { hashPublicSessionToken } from "@/lib/services/public/session";
 import { validateRequest, publicLeadSchema } from "@/lib/validation";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
+import { markTrackingLinkConverted } from "@/lib/services/tracking";
+import { normalizeEmail, normalizeName, normalizePhone } from "@/lib/services/contact/normalize";
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -39,9 +41,9 @@ export async function POST(req: NextRequest) {
 
     // Normalising here is what makes contact de-duplication work: the same
     // person typing "A@B.com " and "a@b.com" must resolve to one contact.
-    const normalizedEmail = email ? email.trim().toLowerCase() : email;
-    const cleanPhone = phone ? phone.replace(/[^d+]/g, "") || null : phone;
-    const cleanName = name ? name.trim() : name;
+    const normalizedEmail = normalizeEmail(email);
+    const cleanPhone = phone ? normalizePhone(phone) : phone;
+    const cleanName = normalizeName(name);
 
     // Lead capture transaction: find or update contact, create lead, link conversation
     const result = await prisma.$transaction(async (tx) => {
@@ -132,6 +134,10 @@ export async function POST(req: NextRequest) {
 
       return { lead, contact };
     });
+
+    // Conversion is recorded per link, so a campaign's open → chat → lead
+    // funnel can be read end to end.
+    await markTrackingLinkConverted(conversation.trackingLinkId);
 
     return withPublicCors(
       NextResponse.json({ success: true, data: { leadId: result.lead.id } }),

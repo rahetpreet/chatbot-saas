@@ -47,8 +47,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         ? `https://${campaign.tenant.customDomain}`
         : platformOrigin;
 
+    // A /t/<token> link counts its own opens, conversations and conversions,
+    // so it is the one worth sending when it exists.
+    const trackingLinks = await prisma.trackingLink.findMany({
+      where: { tenantId, campaignId: campaign.id, isActive: true, deletedAt: null },
+      select: { token: true, campaignContactId: true },
+    });
+    const trackingByContact = new Map(
+      trackingLinks.filter((link) => link.campaignContactId).map((link) => [link.campaignContactId!, link.token]),
+    );
+
+    const trackingBase = platformOrigin.replace(/\/+$/, "");
+
     const rows = campaign.contacts.map((contact) => ({
       contact,
+      trackingUrl: trackingByContact.has(contact.id)
+        ? `${trackingBase}/t/${trackingByContact.get(contact.id)}`
+        : null,
       fullUrl:
         campaign.tenant.customDomain && campaign.tenant.customDomainVerifiedAt
           ? `${chatOrigin}/?campaign=${encodeURIComponent(campaign.slug)}&contact=${encodeURIComponent(contact.customUrlSlug)}`
@@ -61,7 +76,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         tenantId,
         chatOrigin,
         rows.map((row) => ({
-          targetUrl: row.fullUrl,
+          targetUrl: row.trackingUrl || row.fullUrl,
           campaignId: campaign.id,
           campaignContactId: row.contact.id,
         })),
@@ -69,7 +84,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       shortByContact = new Map(created.map((link, index) => [rows[index].contact.id, link.shortUrl]));
     }
 
-    const csvData = rows.map(({ contact, fullUrl }) => {
+    const csvData = rows.map(({ contact, fullUrl, trackingUrl }) => {
       const record: Record<string, string | number> = {
         Name: contact.name || "",
         Email: contact.email || "",
@@ -77,6 +92,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         "Contact Identifier": contact.contactIdentifier || "",
         "Custom URL Slug": contact.customUrlSlug || "",
         "Unique Chat Link": fullUrl,
+        "Tracking Link": trackingUrl || "",
       };
       if (wantShortLinks) {
         const shortUrl = shortByContact.get(contact.id) || "";

@@ -26,6 +26,8 @@
     currentScript?.getAttribute("data-campaign") || pageParams.get("campaign") || undefined;
   const contactSlug =
     currentScript?.getAttribute("data-contact") || pageParams.get("contact") || undefined;
+  // Present when the visitor arrived via /t/<token>.
+  const trackingToken = pageParams.get("t") || undefined;
   const utm = {
     utmSource: pageParams.get("utm_source") || undefined,
     utmMedium: pageParams.get("utm_medium") || undefined,
@@ -490,6 +492,7 @@
           flowId: customFlowId,
           campaignSlug,
           contactSlug,
+          trackingToken,
           utm,
           referrer: document.referrer,
           device: window.innerWidth < 768 ? "mobile" : "desktop",
@@ -645,7 +648,18 @@
   uploadBtn.onclick = () => fileInput.click();
   fileInput.onchange = async (e) => {
     const file = e.target.files?.[0];
+    // Reset so picking the same file twice still fires a change event.
+    e.target.value = "";
     if (!file) return;
+
+    // The embedded widget posts through a serverless function, where Vercel
+    // caps the request body at roughly 4.5 MB. Say so up front rather than
+    // letting the upload fail after the visitor has waited for it.
+    if (file.size > 4 * 1024 * 1024) {
+      appendMessage("bot", "That file is larger than 4 MB. Please attach a smaller file.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append("tenantSlug", tenantSlug);
@@ -666,10 +680,13 @@
           value: data.file,
           label: `Uploaded ${data.file.name}`,
         });
+      } else {
+        // Show the server's reason instead of a generic failure.
+        appendMessage("bot", (data.error && data.error.message) || "That file could not be uploaded.");
       }
     } catch {
       removeTypingIndicator();
-      appendMessage("bot", "File upload failed.");
+      appendMessage("bot", "File upload failed. Please check your connection and try again.");
     }
   };
 

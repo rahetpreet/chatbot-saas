@@ -4,6 +4,7 @@ import { requireTenantRole } from "@/lib/services/auth/session";
 import Papa from "papaparse";
 import { slugify, generateRandomId } from "@/lib/utils";
 import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
+import { normalizeEmail, normalizeName, normalizePhone } from "@/lib/services/contact/normalize";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -58,9 +59,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const phoneKey = keys.find((k) => /phone|mobile/i.test(k));
       const idKey = keys.find((k) => /id|identifier|contact_id/i.test(k));
 
-      const name = nameKey ? row[nameKey]?.trim() : undefined;
-      const email = emailKey ? row[emailKey]?.trim() : undefined;
-      const phone = phoneKey ? row[phoneKey]?.trim() : undefined;
+      // Normalised on the way in, so an imported contact and one captured by
+      // the widget de-duplicate against each other instead of both existing.
+      const name = nameKey ? normalizeName(row[nameKey]) : undefined;
+      const email = emailKey ? normalizeEmail(row[emailKey]) : undefined;
+      const phone = phoneKey ? normalizePhone(row[phoneKey]) : undefined;
       const identifier = (idKey ? row[idKey]?.trim() : null) || `contact_${Date.now()}_${i + 1}`;
 
       const namePart = name ? slugify(name).substring(0, 20) : "c";

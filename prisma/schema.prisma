@@ -315,6 +315,7 @@ model Conversation {
   flowId                 String?
   campaignContactId      String?
   campaignId             String?
+  trackingLinkId         String?
   visitorRecordId        String?
   visitorId              String
   publicSessionTokenHash String?   @unique
@@ -330,6 +331,7 @@ model Conversation {
   flow            Flow?            @relation(fields: [flowId], references: [id], onDelete: SetNull)
   campaignContact CampaignContact? @relation(fields: [campaignContactId], references: [id], onDelete: SetNull)
   campaign        Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  trackingLink    TrackingLink?    @relation(fields: [trackingLinkId], references: [id], onDelete: SetNull)
   visitor         Visitor?         @relation(fields: [visitorRecordId], references: [id], onDelete: SetNull)
   messages        Message[]
   leads           Lead[]
@@ -344,6 +346,7 @@ model Conversation {
   @@index([tenantId, startedAt])
   @@index([publicSessionTokenHash])
   @@index([campaignId])
+  @@index([trackingLinkId])
   @@index([visitorRecordId])
 }
 
@@ -583,6 +586,7 @@ model TrackingLink {
   campaignId        String?
   flowId            String?
   contactId         String?
+  campaignContactId String?
   token             String    @unique
   firstOpenedAt     DateTime?
   lastOpenedAt      DateTime?
@@ -598,6 +602,8 @@ model TrackingLink {
   createdAt         DateTime  @default(now())
   deletedAt         DateTime?
 
+  conversations Conversation[]
+
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   flow     Flow?     @relation(fields: [flowId], references: [id], onDelete: SetNull)
@@ -606,6 +612,7 @@ model TrackingLink {
   @@index([tenantId])
   @@index([campaignId])
   @@index([token])
+  @@index([campaignContactId])
   @@index([tenantId, isActive])
 }
 
