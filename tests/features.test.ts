@@ -346,3 +346,32 @@ test("long sources are split into retrievable passages", () => {
   assert.deepEqual(chunkText("Just one short line about fees."), ["Just one short line about fees."]);
   assert.deepEqual(chunkText("   "), []);
 });
+
+import { pathHostingOptions } from "../src/lib/services/tenant/domainResolver";
+
+test("path hosting offers approaches that actually work", () => {
+  const chatUrl = "https://platform.test/c/acme";
+  const options = pathHostingOptions(chatUrl, "/chat-bot");
+
+  // DNS cannot route a path, so an embed and a reverse proxy are the only
+  // honest answers; offering a DNS record here would simply not work.
+  const ids = options.map((option) => option.id);
+  assert.deepEqual(ids, ["embed", "proxy"]);
+
+  const embed = options[0];
+  assert.match(embed.snippets[0].code, /<iframe/);
+  assert.match(embed.snippets[0].code, new RegExp(chatUrl.replace(/\//g, "\/")));
+
+  const proxy = options[1];
+  const platforms = proxy.snippets.map((snippet) => snippet.platform);
+  for (const expected of ["Nginx", "Cloudflare Worker", "Vercel (vercel.json)", "Apache (.htaccess)"]) {
+    assert.ok(platforms.includes(expected), `missing configuration for ${expected}`);
+  }
+
+  // Every proxy snippet must also forward the app's assets. Forwarding only
+  // the page renders it without styling, which looks broken.
+  for (const snippet of proxy.snippets) {
+    assert.match(snippet.code, /_next/, `${snippet.platform} does not forward assets`);
+    assert.match(snippet.code, /chat-bot/, `${snippet.platform} does not use the requested path`);
+  }
+});

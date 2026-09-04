@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireTenantRole } from "@/lib/services/auth/session";
-import { dnsInstructionsFor, validateCustomDomain } from "@/lib/services/tenant/domainResolver";
+import { dnsInstructionsFor, pathHostingOptions, validateCustomDomain } from "@/lib/services/tenant/domainResolver";
 import { getAppUrl } from "@/lib/appUrl";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,13 @@ export async function GET() {
       verifiedAt: tenant.customDomainVerifiedAt,
       dns: tenant.customDomain ? dnsInstructionsFor(tenant.customDomain) : null,
       ...chatUrls(tenant.slug, tenant.customDomain),
+      // Serving the chat from a path on the client's own site is not a DNS
+      // problem, so it is answered separately from the records above.
+      pathHosting: pathHostingOptions(
+        tenant.customDomain && tenant.customDomainVerifiedAt
+          ? `https://${tenant.customDomain}`
+          : `${getAppUrl() || ""}/c/${tenant.slug}`,
+      ),
     };
     return NextResponse.json({ success: true, data, ...data });
   } catch (error: any) {

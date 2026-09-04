@@ -119,3 +119,126 @@ export function dnsInstructionsFor(domain: string) {
       "Add this domain under Vercel → Project → Settings → Domains so the certificate is issued. Until then the browser will show a certificate warning.",
   };
 }
+
+/**
+ * Serving the chat from a path on the customer's own site, e.g.
+ * example.com/chat-bot/.
+ *
+ * This cannot be done with DNS. A DNS record points a whole hostname at a
+ * server; it has no concept of a path, so no record can send only
+ * example.com/chat-bot to us while the rest of the site stays where it is.
+ * Anyone promising otherwise is describing a subdomain.
+ *
+ * There are two ways that actually work, and they trade off differently:
+ *
+ *  - Embed: the customer adds one page to their own site containing an
+ *    iframe. Works on every stack including Wix and WordPress, needs no
+ *    server access, and their existing site keeps serving the URL.
+ *
+ *  - Reverse proxy: their web server forwards that path to us. Truly
+ *    path-based with no iframe, but it needs server or CDN access, and
+ *    assets must be forwarded too or the page loads without styling.
+ */
+export interface PathHostingOption {
+  id: "embed" | "proxy";
+  label: string;
+  summary: string;
+  worksWith: string;
+  snippets: Array<{ platform: string; language: string; code: string }>;
+}
+
+export function pathHostingOptions(publicChatUrl: string, sitePath = "/chat-bot"): PathHostingOption[] {
+  const path = "/" + sitePath.replace(/^\/+|\/+$/g, "");
+
+  return [
+    {
+      id: "embed",
+      label: "Embed on a page (recommended)",
+      summary:
+        "Create a page at " + path + " on your own site and paste this in. Your site keeps serving the URL; the chat " +
+        "runs inside it.",
+      worksWith: "Any website — WordPress, Wix, Shopify, Squarespace, a hand-written HTML page.",
+      snippets: [
+        {
+          platform: "HTML",
+          language: "html",
+          code: `<iframe
+  src="${publicChatUrl}"
+  title="Chat"
+  style="width:100%;height:100vh;border:0;display:block"
+  allow="clipboard-write"
+></iframe>`,
+        },
+      ],
+    },
+    {
+      id: "proxy",
+      label: "Reverse proxy (no iframe)",
+      summary:
+        "Your web server forwards " + path + " to us. The address bar stays on your domain and there is no iframe, " +
+        "but you need access to your server or CDN configuration.",
+      worksWith: "Nginx, Apache, Cloudflare, Vercel, Netlify.",
+      snippets: [
+        {
+          platform: "Nginx",
+          language: "nginx",
+          code: `location ${path}/ {
+    proxy_pass ${publicChatUrl.replace(/\/+$/, "")}/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+
+# Assets are served from the app's root, so they must be forwarded too or
+# the page loads without styling.
+location /_next/ {
+    proxy_pass ${new URL(publicChatUrl).origin}/_next/;
+}`,
+        },
+        {
+          platform: "Cloudflare Worker",
+          language: "javascript",
+          code: `export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const target = "${new URL(publicChatUrl).origin}";
+
+    if (url.pathname.startsWith("${path}")) {
+      const upstream = new URL("${new URL(publicChatUrl).pathname}", target);
+      upstream.search = url.search;
+      return fetch(upstream, request);
+    }
+    // Styling and scripts live at the app's root.
+    if (url.pathname.startsWith("/_next/")) {
+      return fetch(new URL(url.pathname + url.search, target), request);
+    }
+    return fetch(request);
+  },
+};`,
+        },
+        {
+          platform: "Vercel (vercel.json)",
+          language: "json",
+          code: `{
+  "rewrites": [
+    { "source": "${path}", "destination": "${publicChatUrl}" },
+    { "source": "${path}/:path*", "destination": "${publicChatUrl}" },
+    { "source": "/_next/:path*", "destination": "${new URL(publicChatUrl).origin}/_next/:path*" }
+  ]
+}`,
+        },
+        {
+          platform: "Apache (.htaccess)",
+          language: "apache",
+          code: `RewriteEngine On
+RewriteRule ^${path.replace(/^\//, "")}/?$ ${publicChatUrl} [P,L]
+ProxyPassReverse ${path} ${publicChatUrl}
+
+# Assets live at the app's root.
+ProxyPass /_next/ ${new URL(publicChatUrl).origin}/_next/
+ProxyPassReverse /_next/ ${new URL(publicChatUrl).origin}/_next/`,
+        },
+      ],
+    },
+  ];
+}
