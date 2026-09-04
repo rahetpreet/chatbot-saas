@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { CustomDomainPanel } from "@/components/settings/CustomDomainPanel";
 import { KnowledgeImport } from "@/components/settings/KnowledgeImport";
+import { TeamPanel } from "@/components/settings/TeamPanel";
 import {
   Mail,
   Sparkles,
@@ -19,13 +20,14 @@ import {
   CheckCircle2,
   Cpu,
   Globe,
+  Headset,
   ShieldCheck,
   KeyRound,
   Lock,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"smtp" | "ai" | "knowledge" | "domain" | "security">("smtp");
+  const [activeTab, setActiveTab] = useState<"ai" | "knowledge" | "team" | "domain" | "security">("ai");
   const [aiPlatform, setAiPlatform] = useState<{ available: boolean; provider: string | null; model: string | null } | null>(null);
 
   // Security & Password state
@@ -35,26 +37,14 @@ export default function SettingsPage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordFeedback, setPasswordFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  // SMTP state
-  const [smtpConfig, setSmtpConfig] = useState({
-    host: "",
-    port: 587,
-    user: "",
-    pass: "",
-    secure: false,
-    from: "",
-  });
-  const [testEmail, setTestEmail] = useState("");
-  const [testingSmtp, setTestingSmtp] = useState(false);
-  const [savingSmtp, setSavingSmtp] = useState(false);
-  const [smtpFeedback, setSmtpFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
-
   // AI state
   const [aiConfig, setAiConfig] = useState({
     enabled: false,
-    provider: "disabled", // disabled, ollama, groq, openrouter, gemini
-    model: "llama3.2",
-    baseUrl: "http://localhost:11434",
+    // Kept so existing saved configurations round-trip unchanged; the client
+    // never sees or sets these.
+    provider: "gemini",
+    model: "",
+    baseUrl: "",
     apiKey: "",
     systemPrompt: "You are the helpful virtual assistant for our company.",
     temperature: 0.7,
@@ -72,13 +62,6 @@ export default function SettingsPage() {
   const [addingDoc, setAddingDoc] = useState(false);
 
   useEffect(() => {
-    // Load SMTP
-    fetch("/api/client/settings/smtp")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.config) setSmtpConfig(d.config);
-      });
-
     // Load AI
     fetch("/api/client/settings/ai")
       .then((r) => r.json())
@@ -101,76 +84,49 @@ export default function SettingsPage() {
     }
   };
 
-  // 1. Save SMTP
-  const handleSaveSmtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingSmtp(true);
-    setSmtpFeedback(null);
-    try {
-      const res = await fetch("/api/client/settings/smtp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(smtpConfig),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSmtpFeedback({ type: "success", msg: "Custom SMTP settings saved successfully!" });
-      } else {
-        setSmtpFeedback({ type: "error", msg: data.error || "Failed to save SMTP" });
-      }
-    } catch {
-      setSmtpFeedback({ type: "error", msg: "Network error" });
-    } finally {
-      setSavingSmtp(false);
-    }
-  };
-
-  // 2. Test SMTP
-  const handleTestSmtp = async () => {
-    if (!testEmail) {
-      alert("Please enter a destination email address to test.");
-      return;
-    }
-    setTestingSmtp(true);
-    setSmtpFeedback(null);
-    try {
-      const res = await fetch("/api/client/settings/smtp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...smtpConfig, testEmail }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSmtpFeedback({ type: "success", msg: data.message });
-      } else {
-        setSmtpFeedback({ type: "error", msg: data.error || "Test email delivery failed" });
-      }
-    } catch {
-      setSmtpFeedback({ type: "error", msg: "SMTP verification failed" });
-    } finally {
-      setTestingSmtp(false);
-    }
-  };
-
   // 3. Save AI Settings
-  const handleSaveAi = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * AI is a single on/off choice for the client.
+   *
+   * Provider, model, temperature and API key are platform concerns, not
+   * something a business owner should have to reason about — and asking them
+   * to made a working setup look broken. Saving immediately on toggle removes
+   * the "did that save?" doubt a separate Save button creates.
+   */
+  const handleToggleAi = async (enabled: boolean) => {
+    const previous = aiConfig;
+    const next = { ...aiConfig, enabled };
+    setAiConfig(next);
     setSavingAi(true);
     setAiFeedback(null);
+
     try {
       const res = await fetch("/api/client/settings/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(aiConfig),
+        // The platform supplies provider and credentials; only the switch and
+        // the workspace's own prompt travel from here.
+        body: JSON.stringify({ ...next, apiKey: next.apiKey || "" }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setAiFeedback({ type: "success", msg: "AI configuration saved successfully!" });
+
+      if (res.ok && data.success !== false) {
+        setAiFeedback({
+          type: "success",
+          msg: enabled ? "AI answering is now on." : "AI answering is now off.",
+        });
       } else {
-        setAiFeedback({ type: "error", msg: data.error || "Failed to save AI config" });
+        // Put the switch back rather than leaving it showing a state that was
+        // never stored.
+        setAiConfig(previous);
+        setAiFeedback({
+          type: "error",
+          msg: data.error?.message || data.error || "Could not save that change.",
+        });
       }
     } catch {
-      setAiFeedback({ type: "error", msg: "Network error" });
+      setAiConfig(previous);
+      setAiFeedback({ type: "error", msg: "Could not reach the server." });
     } finally {
       setSavingAi(false);
     }
@@ -251,22 +207,12 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Settings & Integrations</h1>
         <p className="text-sm text-slate-500">
-          Configure custom SMTP email delivery, modular AI engines (Ollama/Free tier), and FAQ knowledge base.
+          Turn AI answering on or off, teach the bot about your business, and connect your own domain.
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab("smtp")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === "smtp" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
-          }`}
-        >
-          <Mail className="w-4 h-4" />
-          <span>Custom SMTP Email</span>
-        </button>
-
         <button
           onClick={() => setActiveTab("ai")}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
@@ -285,6 +231,16 @@ export default function SettingsPage() {
         >
           <BookOpen className="w-4 h-4" />
           <span>FAQ Knowledge Base ({knowledgeDocs.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("team")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+            activeTab === "team" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Headset className="w-4 h-4" />
+          <span>Team &amp; Agents</span>
         </button>
 
         <button
@@ -308,302 +264,92 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* TAB 1: Custom SMTP Setup */}
-      {activeTab === "smtp" && (
-        <div className="space-y-4 animate-fade-in">
-          <Card>
-            <form onSubmit={handleSaveSmtp}>
-              <CardHeader>
-                <CardTitle className="text-base">Custom Brand SMTP Server</CardTitle>
-                <CardDescription>
-                  Configure your own SMTP server to send password reset links and lead notification alerts from your custom domain.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 text-xs">
-                {smtpFeedback && (
-                  <div
-                    className={`p-3 rounded-lg text-xs font-medium border ${
-                      smtpFeedback.type === "success"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : "bg-rose-50 text-rose-700 border-rose-200"
-                    }`}
-                  >
-                    {smtpFeedback.msg}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2 pb-2 border-b border-slate-100">
-                  <span className="w-full text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Quick Setup Presets:</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-[11px] h-7 px-2.5"
-                    onClick={() => setSmtpConfig({ ...smtpConfig, host: "smtp-relay.brevo.com", port: 587, secure: false, user: "", pass: "" })}
-                  >
-                    ⚡ Brevo (Sendinblue)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-[11px] h-7 px-2.5"
-                    onClick={() => setSmtpConfig({ ...smtpConfig, host: "smtp.gmail.com", port: 587, secure: false })}
-                  >
-                    ✉️ Gmail / Google Workspace
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-[11px] h-7 px-2.5"
-                    onClick={() => setSmtpConfig({ ...smtpConfig, host: "email-smtp.us-east-1.amazonaws.com", port: 587, secure: false })}
-                  >
-                    ☁️ Amazon SES
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-[11px] h-7 px-2.5"
-                    onClick={() => setSmtpConfig({ ...smtpConfig, host: "", port: 587, secure: false, user: "", pass: "" })}
-                  >
-                    ⚙️ Custom SMTP
-                  </Button>
-                </div>
-                {smtpConfig.host === "smtp-relay.brevo.com" && (
-                  <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-[11px]">
-                    <strong>Brevo Setup:</strong> Login to Brevo {'>'} Transactional {'>'} SMTP to copy your login and Master API key as password.
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="SMTP Host"
-                    value={smtpConfig.host}
-                    onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
-                    placeholder="smtp.gmail.com or mail.yourdomain.com"
-                  />
-                  <Input
-                    label="SMTP Port"
-                    type="number"
-                    value={smtpConfig.port}
-                    onChange={(e) => setSmtpConfig({ ...smtpConfig, port: Number(e.target.value) })}
-                    placeholder="587"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="SMTP Username"
-                    value={smtpConfig.user}
-                    onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
-                    placeholder="you@yourdomain.com"
-                  />
-                  <Input
-                    label="SMTP Password / App Password"
-                    type="password"
-                    value={smtpConfig.pass}
-                    onChange={(e) => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
-                    placeholder="••••••••"
-                  />
-                </div>
-
-                <Input
-                  label="From Email Address (Sender)"
-                  value={smtpConfig.from}
-                  onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })}
-                  placeholder="noreply@yourdomain.com"
-                />
-
-                <label className="flex items-center gap-2 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={smtpConfig.secure}
-                    onChange={(e) => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })}
-                    className="rounded border-slate-300 text-indigo-600"
-                  />
-                  <span className="font-semibold text-slate-800">Use SSL/TLS (Port 465)</span>
-                </label>
-
-                {/* Dev Mode Notification */}
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 space-y-1">
-                  <p className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Zero-Cost / Free-First Default Mode</span>
-                  </p>
-                  <p>
-                    If no custom SMTP is provided, the platform automatically routes all emails to the ₹0 Development Mailbox.
-                  </p>
-                </div>
-              </CardContent>
-
-              <CardFooter className="flex items-center justify-between">
-                {/* Test Email Form */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="email"
-                    placeholder="test@example.com"
-                    value={testEmail}
-                    onChange={(e) => setTestEmail(e.target.value)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs w-48"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    loading={testingSmtp}
-                    onClick={handleTestSmtp}
-                    className="text-xs"
-                  >
-                    <Send className="w-3 h-3 mr-1" /> Test Email
-                  </Button>
-                </div>
-
-                <Button type="submit" loading={savingSmtp} className="font-bold text-xs">
-                  Save SMTP Settings
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
-        </div>
-      )}
-
       {/* TAB 2: AI Fallback Settings */}
       {activeTab === "ai" && (
         <div className="space-y-4 animate-fade-in">
           <Card>
-            <form onSubmit={handleSaveAi}>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <span>Modular AI Layer & LLM Fallback</span>
-                </CardTitle>
-                <CardDescription>
-                  Enable optional AI inference for queries outside standard button branches. The platform works 100% with rule-based flows even if AI is disabled.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 text-xs">
-                {aiFeedback && (
-                  <div
-                    className={`p-3 rounded-lg text-xs font-medium border ${
-                      aiFeedback.type === "success"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : "bg-rose-50 text-rose-700 border-rose-200"
-                    }`}
-                  >
-                    {aiFeedback.msg}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div>
-                    <span className="font-bold text-slate-900 block">Enable AI Layer</span>
-                    <span className="text-slate-500 text-[11px]">
-                      When enabled, queries without explicit button matches are evaluated by your chosen AI model.
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={aiConfig.enabled}
-                    onChange={(e) => setAiConfig({ ...aiConfig, enabled: e.target.checked })}
-                    className="w-5 h-5 rounded text-indigo-600"
-                  />
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                <span>AI Answering</span>
+              </CardTitle>
+              <CardDescription>
+                Lets the bot answer questions in its own words, using only what you have added under FAQ &amp;
+                Knowledge Base. When the answer is not there, it says so and passes the visitor to a person rather
+                than guessing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-xs">
+              {aiFeedback && (
+                <div
+                  className={`p-3 rounded-lg text-xs font-medium border ${
+                    aiFeedback.type === "success"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-rose-50 text-rose-700 border-rose-200"
+                  }`}
+                >
+                  {aiFeedback.msg}
                 </div>
+              )}
 
-                {aiPlatform?.available && (
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
-                    <p className="font-bold">AI is already available on this workspace</p>
-                    <p className="text-[11px] mt-0.5">
-                      The platform provides {aiPlatform.provider} ({aiPlatform.model}). Just switch the toggle on — you
-                      only need your own API key if you want to use a different model or bill it separately.
-                    </p>
-                  </div>
-                )}
+              <button
+                type="button"
+                onClick={() => handleToggleAi(!aiConfig.enabled)}
+                className={`w-full flex items-center justify-between gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
+                  aiConfig.enabled
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <div>
+                  <span className="font-bold text-slate-900 block text-sm">
+                    {aiConfig.enabled ? "AI answering is on" : "AI answering is off"}
+                  </span>
+                  <span className="text-slate-500 text-[11px]">
+                    {aiConfig.enabled
+                      ? "Visitors get written answers from your content, with a handover when it does not know."
+                      : "The bot follows your flow buttons only."}
+                  </span>
+                </div>
+                <span
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    aiConfig.enabled ? "bg-emerald-500" : "bg-slate-300"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                      aiConfig.enabled ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
 
-                {aiConfig.enabled && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">AI Provider</label>
-                        <select
-                          value={aiConfig.provider}
-                          onChange={(e) => setAiConfig({ ...aiConfig, provider: e.target.value as any })}
-                          className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs font-medium"
-                        >
-                          <option value="gemini">Google Gemini (free tier — recommended)</option>
-                          <option value="groq">Groq (free tier — fastest)</option>
-                          <option value="openrouter">OpenRouter (free open-source models)</option>
-                          <option value="ollama">Ollama (self-hosted, local only)</option>
-                          <option value="disabled">Disabled — rule-based flows only</option>
-                        </select>
-                      </div>
+              {aiPlatform?.available ? (
+                <p className="text-[11px] text-slate-500">
+                  Answers are generated by the platform&apos;s AI service. Nothing else to set up.
+                </p>
+              ) : (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900">
+                  <p className="font-bold">AI is not available on this platform yet</p>
+                  <p className="text-[11px] mt-0.5">
+                    Your administrator needs to configure the AI service. Until then the bot follows your flow
+                    buttons and hands over for anything else.
+                  </p>
+                </div>
+              )}
 
-                      <Input
-                        label="Model Name"
-                        value={aiConfig.model}
-                        onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
-                        placeholder="e.g. llama3.2, mistral, qwen"
-                      />
-                    </div>
-
-                    {aiConfig.provider === "ollama" ? (
-                      <Input
-                        label="Local Ollama Server URL"
-                        value={aiConfig.baseUrl}
-                        onChange={(e) => setAiConfig({ ...aiConfig, baseUrl: e.target.value })}
-                        placeholder="http://localhost:11434"
-                        helperText="Runs locally without any API key or subscription."
-                      />
-                    ) : aiConfig.provider !== "disabled" ? (
-                      <Input
-                        label="Provider API Key"
-                        type="password"
-                        value={aiConfig.apiKey}
-                        onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
-                        placeholder="gsk_... or sk-or-..."
-                      />
-                    ) : null}
-
-                    <Textarea
-                      label="Company AI System Prompt / Persona"
-                      value={aiConfig.systemPrompt}
-                      onChange={(e) => setAiConfig({ ...aiConfig, systemPrompt: e.target.value })}
-                      placeholder="You are the friendly customer support assistant for Acme Corp."
-                      rows={3}
-                    />
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-700">
-                          Confidence Fallback Threshold: {Math.round(aiConfig.confidenceThreshold * 100)}%
-                        </label>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.3"
-                        max="0.9"
-                        step="0.05"
-                        value={aiConfig.confidenceThreshold}
-                        onChange={(e) => setAiConfig({ ...aiConfig, confidenceThreshold: parseFloat(e.target.value) })}
-                        className="w-full accent-indigo-600"
-                      />
-                      <span className="text-[10px] text-slate-400">
-                        If confidence drops below this score, bot automatically triggers human handover or fallback message.
-                      </span>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-              <CardFooter className="justify-end">
-                <Button type="submit" loading={savingAi} className="font-bold text-xs">
-                  Save AI Settings
-                </Button>
-              </CardFooter>
-            </form>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <p className="font-bold text-slate-800">To make answers better</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Add more of your real content under FAQ &amp; Knowledge Base — your services, pricing and common
+                  questions. The bot can only answer from what is there.
+                </p>
+              </div>
+            </CardContent>
           </Card>
         </div>
       )}
+
 
       {/* TAB 3: FAQ & Knowledge Base */}
       {activeTab === "knowledge" && (
@@ -700,6 +446,8 @@ export default function SettingsPage() {
       )}
 
       {/* TAB 4: Security & Password */}
+      {activeTab === "team" && <TeamPanel />}
+
       {activeTab === "domain" && <CustomDomainPanel />}
 
       {activeTab === "security" && (

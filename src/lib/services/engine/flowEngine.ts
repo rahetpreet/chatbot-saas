@@ -49,6 +49,10 @@ export interface StepOutput {
 }
 
 export class FlowEngine {
+  /** Shown whenever a conversation is passed to a person. */
+  static readonly HANDOVER_MESSAGE =
+    "Please hold for about 2 minutes while we connect you to an agent.";
+
   private nodes: Map<string, EngineNode>;
   private edges: EngineEdge[];
   private tenantId: string;
@@ -226,7 +230,7 @@ export class FlowEngine {
           botMessages.push({
             text: this.interpolate(
               currNode.data.handoverMessage ||
-                "That is a good question, and I would rather not guess. Let me connect you with someone from the team who can answer properly.",
+                "I would rather not guess at that one. " + FlowEngine.HANDOVER_MESSAGE,
               collected,
             ),
           });
@@ -341,11 +345,11 @@ export class FlowEngine {
         currNode = this.getNextNode(currNode.id);
       } else if (nodeType === "handover") {
         currentStatus = "HANDOVER";
-        if (currNode.data.handoverMessage) {
-          botMessages.push({
-            text: this.interpolate(currNode.data.handoverMessage, collected),
-          });
-        }
+        // Always say something. Silently switching to HANDOVER left the
+        // visitor staring at a chat that had simply stopped replying.
+        botMessages.push({
+          text: this.interpolate(currNode.data.handoverMessage || FlowEngine.HANDOVER_MESSAGE, collected),
+        });
         return {
           botMessages,
           interactiveNode: currNode,

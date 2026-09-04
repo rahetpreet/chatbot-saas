@@ -18,6 +18,15 @@ export default function ClientAdminLayout({ children }: { children: React.ReactN
       })
       .then((data) => {
         const user = data.user || data.data?.user;
+
+        // Agents belong in the Agent Console. The server already refuses most
+        // of this section for them, so landing here would just be a wall of
+        // empty pages and permission errors.
+        if (user?.role === "CLIENT_AGENT") {
+          router.replace("/agent");
+          return;
+        }
+
         setSessionData({
           ...data,
           user,

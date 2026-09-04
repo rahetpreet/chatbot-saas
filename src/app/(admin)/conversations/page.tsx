@@ -68,10 +68,17 @@ function LiveConversationsInbox() {
 
       setUnreadIds(new Set(list.filter((conversation: any) => isUnread(conversation)).map((c: any) => c.id)));
 
-      const targetId = autoSelectId || selectedConversation?.id || initialId;
+      // Auto-select ONLY when nothing is open. This runs on a 5s poll, and
+      // reading selectedConversation from the closure gave a stale value, so
+      // every tick re-selected the newest conversation and threw the agent out
+      // of whichever one they had just opened. The ref is always current.
+      const alreadyOpen = selectedConversationRef.current;
+      if (alreadyOpen) return;
+
+      const targetId = autoSelectId || initialId;
       if (targetId) {
         loadConversationDetails(targetId);
-      } else if (list.length > 0 && !selectedConversation) {
+      } else if (list.length > 0) {
         loadConversationDetails(list[0].id);
       }
     } catch (e) {
@@ -82,6 +89,10 @@ function LiveConversationsInbox() {
   };
 
   const loadConversationDetails = async (id: string, showSpinner = false) => {
+    // Claim the selection before awaiting. The effect that syncs this ref runs
+    // after render, which left a window where a poll could auto-select over
+    // the conversation the agent had just clicked.
+    selectedConversationRef.current = id;
     if (showSpinner) setDetailLoading(true);
     try {
       const res = await fetch(`/api/client/conversations/${id}`);

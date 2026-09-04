@@ -41,6 +41,10 @@ export default function LoginPage() {
       const user = data.user || data.data?.user;
       if (user?.role === "SUPER_ADMIN") {
         router.push("/superadmin/dashboard");
+      } else if (user?.role === "CLIENT_AGENT") {
+        // Agents work the handover queue; the client dashboard is not theirs
+        // to navigate, and the server refuses most of it anyway.
+        router.push("/agent");
       } else {
         router.push("/dashboard");
       }
