@@ -402,18 +402,27 @@ model Lead {
 }
 
 model KnowledgeDoc {
-  id        String   @id @default(cuid())
-  tenantId  String
-  title     String
-  category  String?
-  content   String
-  embedding String? // JSON or text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tenantId   String
+  title      String
+  category   String?
+  content    String
+  embedding  String? // JSON or text
+  /// manual | website | file
+  sourceType String   @default("manual")
+  /// Page the content came from, so it can be re-crawled or cited.
+  sourceUrl  String?
+  /// Long sources are split, because retrieval works better on passages than
+  /// on whole pages and the model has a finite context.
+  chunkIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, sourceType])
+  @@index([sourceUrl])
 }
 
 model AnalyticsEvent {

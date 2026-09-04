@@ -7,6 +7,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { CustomDomainPanel } from "@/components/settings/CustomDomainPanel";
+import { KnowledgeImport } from "@/components/settings/KnowledgeImport";
 import {
   Mail,
   Sparkles,
@@ -611,7 +612,8 @@ export default function SettingsPage() {
             <div>
               <h3 className="text-base font-bold text-slate-900">Company FAQs & Knowledge Documents</h3>
               <p className="text-xs text-slate-500">
-                Documents are indexed for zero-cost lexical matching and AI context augmentation.
+                Imported pages and documents are what the bot answers from. Anything it cannot find here is handed
+                to a person instead of guessed at.
               </p>
             </div>
             <Button size="sm" onClick={() => setIsAddDocModalOpen(true)} className="gap-1.5 text-xs font-bold">
@@ -619,6 +621,8 @@ export default function SettingsPage() {
               <span>Add FAQ Document</span>
             </Button>
           </div>
+
+          <KnowledgeImport onImported={fetchKnowledgeDocs} />
 
           <div className="space-y-3">
             {knowledgeDocs.length === 0 ? (

@@ -304,3 +304,45 @@ test("the flow prompt does not push retail language onto non-retail businesses",
   assert.match(prompt, /reasons someone would contact/i);
   assert.match(prompt, /unless the description is about selling goods/i);
 });
+
+import { htmlToText, chunkText } from "../src/lib/services/knowledge/ingest";
+
+test("web page extraction keeps prose and drops the furniture", () => {
+  const html = `<html><head><title>Bright Minds</title></head><body>
+    <script>track(1)</script><style>.a{color:red}</style>
+    <nav>Home About Contact</nav>
+    <h1>Coaching</h1>
+    <p>Batch timings are 4:30 PM to 7:30 PM.</p>
+    <p>Fees start at &#8377;12,000 per term.</p>
+    <footer>All rights reserved</footer></body></html>`;
+
+  const { title, text } = htmlToText(html);
+  assert.equal(title, "Bright Minds");
+
+  // Script and style contents become visible text if tags are stripped first.
+  assert.equal(/track\(1\)/.test(text), false);
+  assert.equal(/color:red/.test(text), false);
+  // Navigation and footers are boilerplate on every page and would dominate
+  // retrieval if kept.
+  assert.equal(/Home About Contact/.test(text), false);
+  assert.equal(/All rights reserved/.test(text), false);
+
+  assert.match(text, /Batch timings are 4:30 PM/);
+  assert.match(text, /₹12,000/, "numeric entities must decode, or prices read as gibberish");
+});
+
+test("long sources are split into retrievable passages", () => {
+  const paragraph = "Our coaching centre runs weekday and weekend batches for senior students. ";
+  const long = Array.from({ length: 60 }, () => paragraph).join("\n\n");
+
+  const chunks = chunkText(long, 500, 50);
+  assert.ok(chunks.length > 1, "a long page must not be stored as one row");
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 700, `chunk of ${chunk.length} chars is too large to rank usefully`);
+    assert.ok(chunk.trim().length > 0);
+  }
+
+  // Short input stays whole rather than being pointlessly fragmented.
+  assert.deepEqual(chunkText("Just one short line about fees."), ["Just one short line about fees."]);
+  assert.deepEqual(chunkText("   "), []);
+});

@@ -1,6 +1,7 @@
 import { FlowNodeData } from "@/types";
 import { getAIProvider } from "../ai";
 import prisma from "@/lib/prisma";
+import { answerFromKnowledge } from "@/lib/services/knowledge/answer";
 
 export interface EngineNode {
   id: string;
@@ -206,20 +207,29 @@ export class FlowEngine {
         collected[key] = fileData;
         currNode = this.getNextNode(currNode.id);
       } else if (nodeType === "ai_fallback") {
-        // User asked a question in AI fallback mode
-        const aiProvider = getAIProvider(this.aiConfigJson);
-        const aiRes = await aiProvider.ask({
+        // Answered strictly from the workspace's own knowledge base. A model
+        // asked a question its documents do not cover will invent a plausible
+        // answer, and a confident wrong answer about price or availability is
+        // worse for the business than handing over.
+        const answer = await answerFromKnowledge({
           tenantId: this.tenantId,
-          userQuery: String(userInput.value || ""),
-          systemPrompt: currNode.data.aiPrompt,
-          conversationHistory: state.history,
+          aiConfigJson: this.aiConfigJson,
+          question: String(userInput.value || ""),
+          businessName: currNode.data.aiPrompt ? undefined : undefined,
+          history: state.history,
         });
 
-        botMessages.push({
-          text: this.interpolate(aiRes.content, collected),
-        });
-
-        if (aiRes.fallbackTriggered && currNode.data.fallbackAction === "handover") {
+        if (answer.answered) {
+          botMessages.push({ text: this.interpolate(answer.content, collected) });
+        } else {
+          // Out of scope: say so plainly and put a person on it.
+          botMessages.push({
+            text: this.interpolate(
+              currNode.data.handoverMessage ||
+                "That is a good question, and I would rather not guess. Let me connect you with someone from the team who can answer properly.",
+              collected,
+            ),
+          });
           currentStatus = "HANDOVER";
         }
 
