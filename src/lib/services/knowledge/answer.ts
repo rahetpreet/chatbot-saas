@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { getAIProvider, sanitizeUserPrompt } from "@/lib/services/ai";
+import { recordUsage } from "@/lib/services/subscription/planLimits";
 
 /**
  * Answering a visitor question from the workspace's own knowledge.
@@ -125,6 +126,8 @@ Company information:
 ${context}`;
 
   const provider = getAIProvider(params.aiConfigJson);
+  // Recorded before the call: a failed request still consumed provider quota.
+  void recordUsage(params.tenantId, "ai_messages", 1);
   const response = await provider.ask({
     tenantId: params.tenantId,
     userQuery: question,

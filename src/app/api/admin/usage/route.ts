@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
+import { getPlatformAIConfigs } from "@/lib/services/ai";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export async function GET(req: NextRequest) {
             conversations: true,
             leads: { where: { deletedAt: null } },
             users: { where: { deletedAt: null } },
+            knowledgeDocs: true,
+            attachments: true,
           },
         },
       },
@@ -97,6 +100,11 @@ export async function GET(req: NextRequest) {
       conversations: tenant._count.conversations,
       leads: tenant._count.leads,
       teamMembers: tenant._count.users,
+      knowledgeDocs: tenant._count.knowledgeDocs,
+      attachments: tenant._count.attachments,
+      // Provider calls this period. AI is metered because it is the one cost
+      // that scales with usage and is capped by a free tier.
+      aiCalls: (recordedBy.get(tenant.id) || {}).ai_messages || 0,
       messagesThisMonth: messagesBy.get(tenant.id) ?? 0,
       storageMb: Math.round(((storageBy.get(tenant.id) ?? 0) / (1024 * 1024)) * 10) / 10,
       recorded: recordedBy.get(tenant.id) || {},
@@ -110,11 +118,22 @@ export async function GET(req: NextRequest) {
         contacts: accumulator.contacts + row.contacts,
         leads: accumulator.leads + row.leads,
         storageMb: Math.round((accumulator.storageMb + row.storageMb) * 10) / 10,
+        aiCalls: accumulator.aiCalls + row.aiCalls,
+        attachments: accumulator.attachments + row.attachments,
+        knowledgeDocs: accumulator.knowledgeDocs + row.knowledgeDocs,
       }),
-      { workspaces: 0, conversations: 0, messagesThisMonth: 0, contacts: 0, leads: 0, storageMb: 0 },
+      {
+        workspaces: 0, conversations: 0, messagesThisMonth: 0, contacts: 0, leads: 0,
+        storageMb: 0, aiCalls: 0, attachments: 0, knowledgeDocs: 0,
+      },
     );
 
-    const data = { period, totals, tenants: rows, quotasEnforced: false };
+    const aiProviders = getPlatformAIConfigs().map((config) => ({
+      provider: config.provider,
+      model: config.model,
+    }));
+
+    const data = { period, totals, tenants: rows, aiProviders, quotasEnforced: false };
     return NextResponse.json({ success: true, data, ...data });
   } catch (error: any) {
     return NextResponse.json(

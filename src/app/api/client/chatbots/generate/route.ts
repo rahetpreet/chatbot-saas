@@ -6,6 +6,7 @@ import { FlowNodeData } from "@/types";
 import { validateFlowGraph } from "@/lib/services/flow/validation";
 import { FLOW_SYSTEM_PROMPT, buildFlowUserPrompt, extractJsonObject, normalizeGeneratedGraph } from "@/lib/services/flow/aiGenerator";
 import { readTenantAiConfig } from "@/lib/security/aiSettings";
+import { recordUsage } from "@/lib/services/subscription/planLimits";
 
 interface GeneratedGraph {
   name: string;
@@ -447,6 +448,7 @@ export async function POST(req: NextRequest) {
           user: buildFlowUserPrompt(String(prompt || templatePreset), tenant?.name || "our company"),
         });
 
+        void recordUsage(tenantId, "ai_messages", 1);
         const normalized = normalizeGeneratedGraph(extractJsonObject(completion));
         if (normalized) {
           generated = normalized;

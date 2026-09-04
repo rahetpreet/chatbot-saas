@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
-import { Activity, MessageSquare, Users, Target, HardDrive, InfoIcon, RefreshCw } from "lucide-react";
+import { Activity, MessageSquare, Users, Target, HardDrive, InfoIcon, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 interface UsageRow {
@@ -20,6 +20,9 @@ interface UsageRow {
   teamMembers: number;
   messagesThisMonth: number;
   storageMb: number;
+  aiCalls: number;
+  knowledgeDocs: number;
+  attachments: number;
 }
 
 interface UsageTotals {
@@ -29,6 +32,9 @@ interface UsageTotals {
   contacts: number;
   leads: number;
   storageMb: number;
+  aiCalls: number;
+  attachments: number;
+  knowledgeDocs: number;
 }
 
 /**
@@ -42,6 +48,7 @@ export default function SuperAdminUsagePage() {
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [totals, setTotals] = useState<UsageTotals | null>(null);
   const [period, setPeriod] = useState("");
+  const [aiProviders, setAiProviders] = useState<Array<{ provider: string; model: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +66,7 @@ export default function SuperAdminUsagePage() {
       setRows(data.tenants || []);
       setTotals(data.totals || null);
       setPeriod(data.period || "");
+      setAiProviders(data.aiProviders || []);
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -75,6 +83,7 @@ export default function SuperAdminUsagePage() {
     { label: "Conversations", value: totals?.conversations ?? 0, icon: Activity, tone: "text-sky-600 bg-sky-50" },
     { label: `Messages (${period})`, value: totals?.messagesThisMonth ?? 0, icon: MessageSquare, tone: "text-emerald-600 bg-emerald-50" },
     { label: "Leads", value: totals?.leads ?? 0, icon: Target, tone: "text-amber-600 bg-amber-50" },
+    { label: `AI calls (${period})`, value: totals?.aiCalls ?? 0, icon: Sparkles, tone: "text-fuchsia-600 bg-fuchsia-50" },
     { label: "Storage (MB)", value: totals?.storageMb ?? 0, icon: HardDrive, tone: "text-violet-600 bg-violet-50" },
   ];
 
@@ -101,6 +110,19 @@ export default function SuperAdminUsagePage() {
           usage. These figures are for visibility and future billing.
         </p>
       </div>
+
+      {aiProviders.length > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-3.5 py-2.5">
+          <Sparkles className="w-4 h-4 text-fuchsia-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-fuchsia-900">
+            <span className="font-bold">AI capacity:</span>{" "}
+            {aiProviders.map((entry) => `${entry.provider} (${entry.model})`).join("  →  ")}
+            {aiProviders.length > 1
+              ? ". Requests fall through to the next provider when one is busy."
+              : ". Only one provider is configured — add a second so a busy free tier does not fall back to templates."}
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800">
@@ -145,6 +167,8 @@ export default function SuperAdminUsagePage() {
                     <th className="py-2 px-2 font-bold text-right">Chats</th>
                     <th className="py-2 px-2 font-bold text-right">Msgs / mo</th>
                     <th className="py-2 px-2 font-bold text-right">Leads</th>
+                    <th className="py-2 px-2 font-bold text-right">AI calls</th>
+                    <th className="py-2 px-2 font-bold text-right">Knowledge</th>
                     <th className="py-2 pl-2 font-bold text-right">Storage</th>
                   </tr>
                 </thead>
@@ -178,7 +202,18 @@ export default function SuperAdminUsagePage() {
                         {row.messagesThisMonth.toLocaleString()}
                       </td>
                       <td className="py-2.5 px-2 text-right tabular-nums text-slate-700">{row.leads.toLocaleString()}</td>
-                      <td className="py-2.5 pl-2 text-right tabular-nums text-slate-700">{row.storageMb} MB</td>
+                      <td className="py-2.5 px-2 text-right tabular-nums font-semibold text-fuchsia-700">
+                        {(row.aiCalls || 0).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-2 text-right tabular-nums text-slate-700">
+                        {(row.knowledgeDocs || 0).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 pl-2 text-right tabular-nums text-slate-700">
+                        {row.storageMb} MB
+                        {row.attachments > 0 && (
+                          <span className="text-slate-400"> · {row.attachments} file{row.attachments === 1 ? "" : "s"}</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
