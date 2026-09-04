@@ -27,7 +27,9 @@ export class ConsoleEmailProvider implements EmailProvider {
     console.log(`Content:\n${textContent}`);
     console.log("======================================================================");
 
-    // Save to dev email table so developer / tester can inspect in UI at /dev/email-inbox
+    // Recorded rather than delivered. This is the fallback when SMTP is not
+    // configured or fails, so the row is the only evidence an email was
+    // attempted; System Check reports when this path is in use.
     try {
       const devEmail = await prisma.devEmail.create({
         data: {

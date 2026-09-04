@@ -14,12 +14,16 @@ import {
   Send,
   User,
   Bot,
+  Bell,
+  BellOff,
   RefreshCw,
   Clock,
   Sparkles,
   Paperclip,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { playNewConversationChime, isUnread, markConversationRead, markAllRead } from "@/lib/notificationSound";
+import { SkeletonList, LoadingPanel } from "@/components/ui/Loading";
 
 function LiveConversationsInbox() {
   const searchParams = useSearchParams();
@@ -32,7 +36,15 @@ function LiveConversationsInbox() {
   const [replyText, setReplyText] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
+  const [soundOn, setSoundOn] = useState(true);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  // Ref rather than state: the poll closure must see the current ids without
+  // being re-created, which would reset the interval on every tick.
+  const knownIdsRef = useRef<Set<string> | null>(null);
+  const soundOnRef = useRef(true);
+  const selectedConversationRef = useRef<string | null>(null);
 
   const fetchConversations = async (autoSelectId?: string) => {
     try {
@@ -42,6 +54,19 @@ function LiveConversationsInbox() {
       const data = await res.json();
       const list = data.conversations || [];
       setConversations(list);
+
+      // First load establishes the baseline; everything already there is not
+      // an "arrival", or the agent would be chimed at on every page open.
+      const incomingIds = new Set<string>(list.map((conversation: any) => conversation.id));
+      if (knownIdsRef.current === null) {
+        knownIdsRef.current = incomingIds;
+      } else {
+        const arrived = list.filter((conversation: any) => !knownIdsRef.current!.has(conversation.id));
+        knownIdsRef.current = incomingIds;
+        if (arrived.length && soundOnRef.current) playNewConversationChime();
+      }
+
+      setUnreadIds(new Set(list.filter((conversation: any) => isUnread(conversation)).map((c: any) => c.id)));
 
       const targetId = autoSelectId || selectedConversation?.id || initialId;
       if (targetId) {
@@ -56,32 +81,55 @@ function LiveConversationsInbox() {
     }
   };
 
-  const loadConversationDetails = async (id: string) => {
+  const loadConversationDetails = async (id: string, showSpinner = false) => {
+    if (showSpinner) setDetailLoading(true);
     try {
       const res = await fetch(`/api/client/conversations/${id}`);
       const data = await res.json();
-      if (data.conversation) {
-        setSelectedConversation(data.conversation);
+      const conversation = data.conversation || data.data?.conversation;
+      if (conversation) {
+        setSelectedConversation(conversation);
+        // Opening it is what marks it read, so a conversation that receives a
+        // new message afterwards becomes unread again.
+        markConversationRead(conversation.id);
+        setUnreadIds((current) => {
+          const next = new Set(current);
+          next.delete(conversation.id);
+          return next;
+        });
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      if (showSpinner) setDetailLoading(false);
     }
   };
 
   useEffect(() => {
     fetchConversations(initialId || undefined);
     // Poll every 5s for live incoming messages
+    // The list was never refreshed, so a brand-new conversation only appeared
+    // after a manual reload -- which is why arrivals went unnoticed.
     const timer = setInterval(() => {
-      if (selectedConversation) {
-        loadConversationDetails(selectedConversation.id);
+      fetchConversations();
+      if (selectedConversationRef.current) {
+        loadConversationDetails(selectedConversationRef.current);
       }
-    }, 4000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [statusFilter]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [selectedConversation?.messages]);
+
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation?.id ?? null;
+  }, [selectedConversation?.id]);
 
   // Send live agent reply
   const handleSendAgentReply = async (e: React.FormEvent) => {
@@ -140,7 +188,42 @@ function LiveConversationsInbox() {
             Real-time chat inbox, human agent live handover, and PDF transcript exports.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {unreadIds.size > 0 && (
+            <button
+              onClick={() => {
+                markAllRead(conversations);
+                setUnreadIds(new Set());
+              }}
+              className="h-8 px-2.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 flex items-center gap-1.5"
+              title="Mark all as read"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              <span>{unreadIds.size} new</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setSoundOn((on) => !on)}
+            className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-colors ${
+              soundOn
+                ? "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                : "bg-slate-100 border-slate-200 text-slate-400"
+            }`}
+            title={soundOn ? "Sound on for new chats" : "Sound muted"}
+          >
+            {soundOn ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
+          </button>
+
+          <a
+            href="/api/client/conversations/export?format=csv"
+            className="h-8 px-2.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+            title="Download every conversation as a spreadsheet"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </a>
+
           <Button size="sm" variant="outline" onClick={() => fetchConversations()} className="h-8 gap-1 text-xs">
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
             <span>Refresh</span>
@@ -184,18 +267,23 @@ function LiveConversationsInbox() {
 
           {/* Conversations Thread Feed */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-            {filtered.length === 0 ? (
+            {loading && conversations.length === 0 ? (
+              <div className="p-3">
+                <SkeletonList rows={6} />
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">No conversations match the filter.</div>
             ) : (
               filtered.map((conv) => {
                 const isSelected = selectedConversation?.id === conv.id;
                 const isHandover = conv.sessionStatus === "HANDOVER";
                 const isResolved = conv.sessionStatus === "RESOLVED";
+                const unread = unreadIds.has(conv.id);
 
                 return (
                   <div
                     key={conv.id}
-                    onClick={() => loadConversationDetails(conv.id)}
+                    onClick={() => loadConversationDetails(conv.id, true)}
                     className={`p-3.5 transition-all cursor-pointer ${
                       isSelected
                         ? "bg-indigo-50/80 border-l-4 border-indigo-600"
@@ -203,8 +291,17 @@ function LiveConversationsInbox() {
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <h4 className="text-xs font-bold text-slate-900 truncate">
-                        {conv.campaignContact?.name || conv.visitorId.substring(0, 14)}
+                      <h4 className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
+                        {unread && (
+                          <span
+                            className="w-2 h-2 rounded-full bg-rose-500 shrink-0 animate-pulse"
+                            title="Unread"
+                            aria-label="Unread"
+                          />
+                        )}
+                        <span className={unread ? "text-slate-900" : "text-slate-700 font-semibold"}>
+                          {conv.campaignContact?.name || conv.visitorId.substring(0, 14)}
+                        </span>
                       </h4>
                       <Badge
                         variant={isHandover ? "warning" : isResolved ? "success" : "info"}
@@ -347,6 +444,10 @@ function LiveConversationsInbox() {
                 </Button>
               </form>
             </>
+          ) : detailLoading || (loading && conversations.length === 0) ? (
+            // Never show "select a conversation" while one is on its way --
+            // it reads as an empty inbox rather than a pending load.
+            <LoadingPanel label="Opening conversation…" className="flex-1" />
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-400 text-xs">
               Select a conversation thread to view the live transcript.

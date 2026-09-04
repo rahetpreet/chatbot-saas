@@ -32,14 +32,6 @@ export function Navbar({ user, tenantSlug }: NavbarProps) {
       </div>
 
       <div className="flex items-center gap-4">
-        <Link
-          href="/dev/email-inbox"
-          className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
-        >
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>₹0 Dev Mailbox</span>
-        </Link>
-
         {user && (
           <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs border border-indigo-200">

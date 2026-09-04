@@ -21,6 +21,7 @@ import {
   Code
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { Skeleton, SkeletonText } from "@/components/ui/Loading";
 
 export default function FlowsListingPage() {
   const [flows, setFlows] = useState<any[]>([]);
@@ -194,6 +195,9 @@ export default function FlowsListingPage() {
           <Button onClick={() => setIsAiModalOpen(true)} variant="outline" className="gap-1.5 text-xs font-bold shadow-sm border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800">
             <Sparkles className="w-4 h-4" />
             <span>Generate with AI</span>
+            <span className="ml-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-600 text-white">
+              Beta
+            </span>
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)} className="gap-1.5 text-xs font-bold shadow-sm">
             <Plus className="w-4 h-4" />
@@ -203,6 +207,18 @@ export default function FlowsListingPage() {
       </div>
 
       {/* Flows Grid */}
+      {loading && flows.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[0, 1, 2].map((index) => (
+            <div key={index} className="rounded-2xl border-2 border-slate-200/80 bg-white p-5 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-5 w-3/4" />
+              <SkeletonText lines={2} />
+              <Skeleton className="h-8 w-full mt-4" />
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {flows.map((flow) => (
           <Card key={flow.id} className="hover:shadow-lg transition-all flex flex-col justify-between border-2 border-slate-200/80">
@@ -307,6 +323,7 @@ export default function FlowsListingPage() {
           </Card>
         ))}
       </div>
+      )}
 
       {/* Create Flow Modal */}
       <Modal
@@ -353,7 +370,7 @@ export default function FlowsListingPage() {
       <Modal
         isOpen={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
-        title="Generate Flow with AI 🤖"
+        title="Generate Flow with AI  ·  BETA"
         description="Describe what kind of bot you want, and AI will build the entire flow for you."
       >
         <form onSubmit={handleGenerateAiFlow} className="space-y-4 text-xs">
