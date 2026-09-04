@@ -117,6 +117,12 @@ export function dnsInstructionsFor(domain: string) {
     // for it, and that is done in the project's own domain settings.
     platformStep:
       "Add this domain under Vercel → Project → Settings → Domains so the certificate is issued. Until then the browser will show a certificate warning.",
+    // These are Vercel's published targets and are verified to resolve, but
+    // Vercel shows the exact record for each domain when it is added. If the
+    // dashboard shows something different, the dashboard is authoritative --
+    // a hard-coded value here would otherwise silently rot.
+    accuracyNote:
+      "Vercel shows the exact record when the domain is added. If it differs from the values above, use Vercel's.",
   };
 }
 

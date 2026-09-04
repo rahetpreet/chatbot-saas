@@ -18,7 +18,7 @@ interface DomainState {
   verifiedAt: string | null;
   platformUrl: string;
   customUrl: string | null;
-  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string } | null;
+  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string; accuracyNote?: string } | null;
   pathHosting?: Array<{
     id: string;
     label: string;
@@ -326,6 +326,9 @@ export function CustomDomainPanel() {
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
               <p className="text-xs font-bold text-amber-900 mb-1">One more step, on our side</p>
               <p className="text-xs text-amber-800">{state.dns.platformStep}</p>
+              {state.dns.accuracyNote && (
+                <p className="text-xs text-amber-800 mt-1.5">{state.dns.accuracyNote}</p>
+              )}
               <p className="text-xs text-amber-800 mt-1.5">
                 Send us <code className="px-1 rounded bg-amber-100">{state.customDomain}</code> so we can add it and
                 issue the TLS certificate. Until that is done the browser will warn about the certificate even once DNS

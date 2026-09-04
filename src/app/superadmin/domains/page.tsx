@@ -20,7 +20,7 @@ interface DomainRow {
   domain: string;
   live: boolean;
   detail: string;
-  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string };
+  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string; accuracyNote?: string };
 }
 
 /**
@@ -192,6 +192,9 @@ export default function SuperAdminDomainsPage() {
                         ))}
                       </div>
                       <p className="text-[11px] text-slate-600 mt-2">{row.dns.platformStep}</p>
+                      {row.dns.accuracyNote && (
+                        <p className="text-[11px] text-slate-500 mt-1">{row.dns.accuracyNote}</p>
+                      )}
                     </div>
                   )}
                 </div>
