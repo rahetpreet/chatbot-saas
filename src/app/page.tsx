@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { resolveTenantByHost } from "@/lib/services/tenant/domainResolver";
-import { CampaignChatContent } from "@/components/chat/HostedChat";
+import { LoginScreen } from "@/components/auth/LoginScreen";
 
 /**
  * A workspace serving its own domain must not advertise ours.
@@ -31,10 +31,10 @@ export async function generateMetadata(): Promise<Metadata> {
   if (!tenant) return {};
 
   return {
-    title: `Chat with ${tenant.name}`,
-    description: `Talk to the ${tenant.name} team.`,
-    // A white-labelled page has no business being indexed under our name, and
-    // the same chat is reachable at the platform URL anyway.
+    title: `${tenant.name} — Sign in`,
+    description: `Sign in to the ${tenant.name} dashboard.`,
+    // A white-labelled sign-in page has no business being indexed, under our
+    // name or theirs.
     robots: { index: false, follow: false },
   };
 }
@@ -48,9 +48,13 @@ export default async function RootPage() {
   const host = (await headers()).get("host");
   const tenant = await resolveTenantByHost(host);
 
-  // A connected custom domain serves that workspace's chat at the root, with
-  // no /c/<slug> path, so the white-labelling is complete.
-  if (tenant) return <CampaignChatContent tenantSlug={tenant.slug} />;
+  // A connected domain is that workspace's own front door, not a single
+  // chatbot: the root is where their team signs in, and their chats live at
+  // /c/<slug> on the same hostname. Serving a chat window here would mean the
+  // client had a domain they could not log in to.
+  if (tenant) {
+    return <LoginScreen brand={{ name: tenant.name, logoUrl: tenant.logoUrl }} />;
+  }
 
   return <MarketingHome />;
 }

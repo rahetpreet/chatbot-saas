@@ -171,10 +171,13 @@ export async function resolveTrackingLink(token: string): Promise<ResolvedTracki
 
 /** Builds the chat URL a resolved link should redirect to. */
 export function trackingRedirectUrl(link: ResolvedTrackingLink, platformOrigin: string): string {
-  const base =
+  // Always /c/<slug>, on whichever origin. The root of a connected domain is
+  // that workspace's sign-in page, so a chat link cannot point there.
+  const origin =
     link.customDomain && link.customDomainVerified
-      ? `https://${link.customDomain}/`
-      : `${platformOrigin.replace(/\/+$/, "")}/c/${link.tenantSlug}`;
+      ? `https://${link.customDomain}`
+      : platformOrigin.replace(/\/+$/, "");
+  const base = `${origin}/c/${link.tenantSlug}`;
 
   const url = new URL(base);
   if (link.campaignSlug) url.searchParams.set("campaign", link.campaignSlug);

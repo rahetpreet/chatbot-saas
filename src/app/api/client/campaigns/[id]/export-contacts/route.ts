@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireTenantAccess } from "@/lib/services/auth/session";
 import { createShortLinks } from "@/lib/services/shortlink";
 import { getAppUrl } from "@/lib/appUrl";
+import { tenantChatUrl, tenantPublicOrigin } from "@/lib/services/tenant/domainResolver";
 import Papa from "papaparse";
 
 export const dynamic = "force-dynamic";
@@ -42,10 +43,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const platformOrigin =
       getAppUrl() ||
       `${req.headers.get("x-forwarded-proto") || "https"}://${req.headers.get("host") || "localhost:3000"}`;
-    const chatOrigin =
-      campaign.tenant.customDomain && campaign.tenant.customDomainVerifiedAt
-        ? `https://${campaign.tenant.customDomain}`
-        : platformOrigin;
+    const chatOrigin = tenantPublicOrigin(campaign.tenant, platformOrigin);
 
     // A /t/<token> link counts its own opens, conversations and conversions,
     // so it is the one worth sending when it exists.
@@ -64,10 +62,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       trackingUrl: trackingByContact.has(contact.id)
         ? `${trackingBase}/t/${trackingByContact.get(contact.id)}`
         : null,
-      fullUrl:
-        campaign.tenant.customDomain && campaign.tenant.customDomainVerifiedAt
-          ? `${chatOrigin}/?campaign=${encodeURIComponent(campaign.slug)}&contact=${encodeURIComponent(contact.customUrlSlug)}`
-          : `${chatOrigin}/c/${campaign.tenant.slug}?campaign=${encodeURIComponent(campaign.slug)}&contact=${encodeURIComponent(contact.customUrlSlug)}`,
+      // One shape for both origins: the root of a connected domain is the
+      // workspace's sign-in page, not a chat.
+      fullUrl: tenantChatUrl(campaign.tenant, platformOrigin, {
+        campaign: campaign.slug,
+        contact: contact.customUrlSlug,
+      }),
     }));
 
     let shortByContact = new Map<string, string>();

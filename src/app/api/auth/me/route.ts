@@ -31,7 +31,18 @@ export async function GET(_req: NextRequest) {
     const tenant = session.tenantId
       ? await prisma.tenant.findUnique({
           where: { id: session.tenantId },
-          select: { id: true, name: true, slug: true, status: true, planTier: true, logoUrl: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            planTier: true,
+            logoUrl: true,
+            // The dashboard builds share links and embed snippets, which must
+            // use the workspace's own hostname once it is serving.
+            customDomain: true,
+            customDomainVerifiedAt: true,
+          },
         })
       : null;
 

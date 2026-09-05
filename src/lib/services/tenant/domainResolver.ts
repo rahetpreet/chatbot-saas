@@ -48,6 +48,8 @@ export interface ResolvedDomainTenant {
   name: string;
   slug: string;
   status: string;
+  /** Used to brand the sign-in screen on the workspace's own domain. */
+  logoUrl: string | null;
 }
 
 /**
@@ -64,7 +66,7 @@ export async function resolveTenantByHost(host: string | null | undefined): Prom
       deletedAt: null,
       status: { in: ["TRIAL", "ACTIVE"] },
     },
-    select: { id: true, name: true, slug: true, status: true },
+    select: { id: true, name: true, slug: true, status: true, logoUrl: true },
   });
 
   return tenant;
@@ -296,4 +298,44 @@ ProxyPassReverse /_next/ ${new URL(publicChatUrl).origin}/_next/`,
       ],
     },
   ];
+}
+
+export interface TenantLinkTarget {
+  slug: string;
+  customDomain?: string | null;
+  customDomainVerifiedAt?: Date | string | null;
+}
+
+/**
+ * The origin a workspace's public links should be built on.
+ *
+ * A verified custom domain wins, so nothing a customer receives mentions the
+ * platform. An *unverified* one deliberately does not: sending traffic to a
+ * hostname with no certificate yet produces a browser security warning, which
+ * is worse than a link that merely looks generic.
+ */
+export function tenantPublicOrigin(tenant: TenantLinkTarget, platformOrigin: string): string {
+  const platform = platformOrigin.replace(/\/+$/, "");
+  if (tenant.customDomain && tenant.customDomainVerifiedAt) return `https://${tenant.customDomain}`;
+  return platform;
+}
+
+/**
+ * The public chat URL for a workspace.
+ *
+ * Always /c/<slug>, on the custom domain or the platform. The root of a
+ * connected domain is that workspace's sign-in page, so the chat cannot live
+ * there — one hostname has to serve both, and the team needs somewhere to log
+ * in.
+ */
+export function tenantChatUrl(
+  tenant: TenantLinkTarget,
+  platformOrigin: string,
+  params: Record<string, string | null | undefined> = {},
+): string {
+  const url = new URL(`${tenantPublicOrigin(tenant, platformOrigin)}/c/${tenant.slug}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.toString();
 }

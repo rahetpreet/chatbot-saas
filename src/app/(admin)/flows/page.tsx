@@ -33,6 +33,7 @@ export default function FlowsListingPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [tenantSlug, setTenantSlug] = useState("");
+  const [publicOrigin, setPublicOrigin] = useState("");
   
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -64,6 +65,12 @@ export default function FlowsListingPage() {
         const user = data.user || data.data?.user;
         if (user?.tenant?.slug) {
           setTenantSlug(user.tenant.slug);
+          // Only a verified domain is used: sending anyone to a hostname
+          // without a certificate yet produces a browser security warning.
+          const verified = user.tenant.customDomain && user.tenant.customDomainVerifiedAt;
+          setPublicOrigin(
+            verified ? `https://${user.tenant.customDomain}` : window.location.origin,
+          );
         }
       } catch {}
     };
@@ -265,7 +272,7 @@ export default function FlowsListingPage() {
                   <div className="flex items-center gap-2">
                     <Input 
                       readOnly 
-                      value={typeof window !== 'undefined' ? `${window.location.origin}/c/${tenantSlug}?flowId=${flow.id}` : ''} 
+                      value={publicOrigin ? `${publicOrigin}/c/${tenantSlug}?flowId=${flow.id}` : ''} 
                       className="h-7 text-[11px] bg-white" 
                     />
                     <Button 
@@ -273,7 +280,7 @@ export default function FlowsListingPage() {
                       variant="outline" 
                       className="h-7 w-7 p-0 shrink-0" 
                       onClick={() => {
-                        const link = typeof window !== 'undefined' ? `${window.location.origin}/c/${tenantSlug}?flowId=${flow.id}` : '';
+                        const link = publicOrigin ? `${publicOrigin}/c/${tenantSlug}?flowId=${flow.id}` : '';
                         copyToClipboard(link, `link-${flow.id}`);
                       }}
                       title="Copy Link"
@@ -281,7 +288,7 @@ export default function FlowsListingPage() {
                       {copiedState === `link-${flow.id}` ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
                     </Button>
                     <a 
-                      href={typeof window !== 'undefined' ? `${window.location.origin}/c/${tenantSlug}?flowId=${flow.id}` : '#'} 
+                      href={publicOrigin ? `${publicOrigin}/c/${tenantSlug}?flowId=${flow.id}` : '#'} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       title="Open Chat"
@@ -442,7 +449,7 @@ export default function FlowsListingPage() {
                   variant="ghost" 
                   className="h-6 text-[10px] px-2 text-indigo-600 hover:bg-indigo-50"
                   onClick={() => {
-                    const script = `<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/widget.js" data-tenant-slug="${tenantSlug}" data-flow-id="${embedModalFlow.id}"></script>`;
+                    const script = `<script src="${publicOrigin}/widget.js" data-tenant-slug="${tenantSlug}" data-flow-id="${embedModalFlow.id}"></script>`;
                     copyToClipboard(script, 'embed-script');
                   }}
                 >
@@ -452,7 +459,7 @@ export default function FlowsListingPage() {
               </div>
               <p className="text-slate-500 text-[11px]">Paste this snippet right before the closing <code>&lt;/body&gt;</code> tag on your website to show the floating chat widget.</p>
               <pre className="p-3 rounded-lg bg-slate-900 text-slate-50 overflow-x-auto text-[11px] font-mono leading-relaxed">
-{`<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/widget.js" data-tenant-slug="${tenantSlug}" data-flow-id="${embedModalFlow.id}"></script>`}
+{`<script src="${publicOrigin}/widget.js" data-tenant-slug="${tenantSlug}" data-flow-id="${embedModalFlow.id}"></script>`}
               </pre>
             </div>
 
@@ -465,7 +472,7 @@ export default function FlowsListingPage() {
                   variant="ghost" 
                   className="h-6 text-[10px] px-2 text-indigo-600 hover:bg-indigo-50"
                   onClick={() => {
-                    const iframe = `<iframe src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed/${tenantSlug}/${embedModalFlow.id}" width="100%" height="650"></iframe>`;
+                    const iframe = `<iframe src="${publicOrigin}/embed/${tenantSlug}/${embedModalFlow.id}" width="100%" height="650"></iframe>`;
                     copyToClipboard(iframe, 'embed-iframe');
                   }}
                 >
@@ -475,7 +482,7 @@ export default function FlowsListingPage() {
               </div>
               <p className="text-slate-500 text-[11px]">Use this to embed the chatbot directly into a page layout (e.g. contact page or help center).</p>
               <pre className="p-3 rounded-lg bg-slate-900 text-slate-50 overflow-x-auto text-[11px] font-mono leading-relaxed">
-{`<iframe src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed/${tenantSlug}/${embedModalFlow.id}" width="100%" height="650"></iframe>`}
+{`<iframe src="${publicOrigin}/embed/${tenantSlug}/${embedModalFlow.id}" width="100%" height="650"></iframe>`}
               </pre>
             </div>
 

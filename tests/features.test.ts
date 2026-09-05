@@ -216,7 +216,7 @@ test("tracking redirect carries full attribution", () => {
   assert.ok(url.searchParams.get("t"), "the token must survive so the conversation can be attributed");
 });
 
-test("a verified custom domain serves the chat at its own root", () => {
+test("a verified custom domain hosts the chat, but not at its root", () => {
   const url = new URL(
     trackingRedirectUrl(
       {
@@ -234,8 +234,11 @@ test("a verified custom domain serves the chat at its own root", () => {
     ),
   );
 
-  assert.equal(url.hostname, "chat.acme.com");
-  assert.equal(url.pathname, "/", "a white-labelled domain must not expose /c/<slug>");
+  assert.equal(url.hostname, "chat.acme.com", "the link must carry the workspace's own hostname");
+  // The root of a connected domain is that workspace's sign-in page, so the
+  // chat cannot live there: one hostname serves both, and the team needs
+  // somewhere to log in.
+  assert.equal(url.pathname, "/c/acme");
 });
 
 test("an unverified custom domain falls back to the platform link", () => {
@@ -417,4 +420,36 @@ test("DNS guidance says who does each step", () => {
   assert.ok(dns.steps!.some((step) => step.who === "client"), "no client step");
   assert.ok(dns.steps!.some((step) => step.who === "operator"), "no operator step");
   assert.match(dns.steps![0].detail, /DNS/i);
+});
+
+import { tenantPublicOrigin, tenantChatUrl } from "../src/lib/services/tenant/domainResolver";
+
+test("public links use the workspace's own hostname once verified", () => {
+  const verified = { slug: "acme", customDomain: "chat.acme.com", customDomainVerifiedAt: new Date() };
+  assert.equal(tenantPublicOrigin(verified, "https://platform.test"), "https://chat.acme.com");
+
+  const url = new URL(tenantChatUrl(verified, "https://platform.test", { campaign: "spring" }));
+  assert.equal(url.hostname, "chat.acme.com");
+  assert.equal(url.pathname, "/c/acme");
+  assert.equal(url.searchParams.get("campaign"), "spring");
+});
+
+test("an unverified domain is never used for a public link", () => {
+  // Sending anyone to a hostname with no certificate yet produces a browser
+  // security warning, which is worse than a link that merely looks generic.
+  const pending = { slug: "acme", customDomain: "chat.acme.com", customDomainVerifiedAt: null };
+  assert.equal(tenantPublicOrigin(pending, "https://platform.test"), "https://platform.test");
+  assert.equal(new URL(tenantChatUrl(pending, "https://platform.test")).hostname, "platform.test");
+
+  const none = { slug: "acme", customDomain: null, customDomainVerifiedAt: null };
+  assert.equal(tenantPublicOrigin(none, "https://platform.test"), "https://platform.test");
+});
+
+test("empty link parameters are dropped rather than sent blank", () => {
+  const url = new URL(
+    tenantChatUrl({ slug: "acme" }, "https://platform.test", { campaign: "spring", contact: null, flowId: "" }),
+  );
+  assert.equal(url.searchParams.get("campaign"), "spring");
+  assert.equal(url.searchParams.has("contact"), false);
+  assert.equal(url.searchParams.has("flowId"), false);
 });

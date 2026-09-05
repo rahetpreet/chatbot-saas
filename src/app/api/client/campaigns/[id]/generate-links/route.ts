@@ -4,6 +4,7 @@ import { requireTenantRole } from "@/lib/services/auth/session";
 import { slugify, generateRandomId } from "@/lib/utils";
 import { createTrackingLinks } from "@/lib/services/tracking";
 import { getAppUrl } from "@/lib/appUrl";
+import { tenantPublicOrigin } from "@/lib/services/tenant/domainResolver";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -18,6 +19,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!campaign) {
       return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Campaign not found" } }, { status: 404 });
     }
+
+    // Links go out on the workspace's own hostname when it is verified.
+    const tenantForLinks = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
 
     const contactsInput = Array.isArray(body.contacts) ? body.contacts : [];
     if (!contactsInput.length) {
@@ -74,7 +81,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })),
     );
 
-    const origin = getAppUrl() || "";
+    const origin = tenantPublicOrigin(
+      { slug: tenantForLinks?.slug || "", customDomain: tenantForLinks?.customDomain, customDomainVerifiedAt: tenantForLinks?.customDomainVerifiedAt },
+      getAppUrl() || "",
+    );
     const links = createdLinks.map((contact, index) => ({
       ...contact,
       trackingToken: trackingLinks[index]?.token ?? null,
