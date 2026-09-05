@@ -1,16 +1,20 @@
-"use client";
-
-import { use } from "react";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { CampaignChatContent } from "@/components/chat/HostedChat";
+import { isSlugAllowedOnHost } from "@/lib/services/tenant/hostGuard";
 
 /**
  * Platform-hosted chat: /c/<workspace-slug>.
  *
- * The implementation lives in a component rather than here because a workspace
- * serving its own custom domain renders the same chat from the root route, and
- * Next.js does not allow a page file to export anything but a default.
+ * A server component so the hostname can be checked before anything renders: a
+ * workspace's own domain must serve only that workspace, or any customer's
+ * branded hostname could be made to host somebody else's chatbot.
  */
-export default function CampaignChatPage({ params }: { params: Promise<{ tenantSlug: string }> }) {
-  const { tenantSlug } = use(params);
+export default async function CampaignChatPage({ params }: { params: Promise<{ tenantSlug: string }> }) {
+  const { tenantSlug } = await params;
+  const host = (await headers()).get("host");
+
+  if (!(await isSlugAllowedOnHost(host, tenantSlug))) notFound();
+
   return <CampaignChatContent tenantSlug={tenantSlug} />;
 }

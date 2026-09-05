@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { isSlugAllowedOnHost } from "@/lib/services/tenant/hostGuard";
 import {
   isAllowedPublicOrigin,
   parseAllowedDomains,
@@ -18,6 +19,16 @@ export async function GET(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
   const tenantSlug = new URL(req.url).searchParams.get("tenantSlug");
+
+  // A connected domain answers only for its own workspace, so a customer's
+  // hostname cannot be used to serve another company's bot.
+  if (tenantSlug && !(await isSlugAllowedOnHost(req.headers.get("host"), tenantSlug))) {
+    return NextResponse.json(
+      { success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is unavailable." } },
+      { status: 404 },
+    );
+  }
+
   if (!tenantSlug) {
     return NextResponse.json(
       { success: false, error: { code: "VALIDATION_ERROR", message: "Tenant slug is required." } },

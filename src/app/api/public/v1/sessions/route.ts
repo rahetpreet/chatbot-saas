@@ -7,6 +7,7 @@ import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/p
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 import { readTenantAiConfig } from "@/lib/security/aiSettings";
 import { recordTrackingConversation } from "@/lib/services/tracking";
+import { isSlugAllowedOnHost } from "@/lib/services/tenant/hostGuard";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -40,6 +41,15 @@ export async function POST(req: NextRequest) {
     const campaignSlug = typeof body.campaignSlug === "string" ? body.campaignSlug : undefined;
     const trackingToken = typeof body.trackingToken === "string" ? body.trackingToken.slice(0, 64) : undefined;
     const utm = parseUtm(body.utm);
+
+    // Same rule as the config endpoint: a chat can only be started for the
+    // workspace that owns the hostname it was requested on.
+    if (tenantSlug && !(await isSlugAllowedOnHost(req.headers.get("host"), tenantSlug))) {
+      return NextResponse.json(
+        { success: false, error: { code: "BOT_NOT_PUBLISHED", message: "This chatbot is unavailable." } },
+        { status: 404 },
+      );
+    }
 
     if (!tenantSlug || !visitorId) {
       return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: "Valid tenant and visitor identifiers are required." } }, { status: 400 });
