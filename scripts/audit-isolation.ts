@@ -307,15 +307,29 @@ async function main() {
     });
 
     await attempt("a domain cannot host another company's bot", async () => {
-      // Not a data leak — a published bot is public at the platform URL — but a
-      // customer's branded hostname presenting somebody else's chatbot is a
-      // brand and phishing problem.
-      const res = await fetch(`${BASE}/api/public/v1/config?tenantSlug=${b.slug}`, {
-        headers: { host: `chat.alpha-${run}.example` },
-      });
-      const text = await res.text();
-      mustRefuse(!/SECRET-beta|"success":true/.test(text), "alpha's domain served beta's bot config");
-      return `refused (${res.status})`;
+      // Tested through the rule itself rather than over HTTP: fetch silently
+      // drops an attempt to set the Host header, so a request meant to
+      // impersonate another hostname actually arrives on the platform's own —
+      // where serving every workspace is correct, and the check would pass
+      // while proving nothing.
+      const { isSlugAllowedOnHost } = await import("../src/lib/services/tenant/hostGuard");
+
+      const alphaHost = `chat.alpha-${run}.example`;
+      mustRefuse(
+        (await isSlugAllowedOnHost(alphaHost, b.slug)) === false,
+        "alpha's domain was allowed to serve beta's bot",
+      );
+      mustRefuse(
+        (await isSlugAllowedOnHost(alphaHost, a.slug)) === true,
+        "alpha's domain was refused its own bot",
+      );
+      // The platform host must keep serving everyone, or /c/<slug> breaks for
+      // every workspace without a custom domain.
+      mustRefuse(
+        (await isSlugAllowedOnHost("chatbot-saas-peach.vercel.app", b.slug)) === true,
+        "the platform host stopped serving a workspace",
+      );
+      return "own workspace only, platform unrestricted";
     });
 
     // ---- public surface ---------------------------------------------------
