@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
 import { getGenerationProviders, getPlatformAIConfigs } from "@/lib/services/ai";
+import { isDomainAutomationConfigured } from "@/lib/services/tenant/vercelDomains";
 import { isEncryptionConfigured } from "@/lib/security/crypto";
 import { getAppUrl } from "@/lib/appUrl";
 
@@ -198,6 +199,20 @@ function checkConfig(): Check[] {
         ? "AI keys and SMTP passwords are encrypted at rest."
         : "Stored unencrypted.",
       hint: isEncryptionConfigured() ? undefined : "Set ENCRYPTION_KEY (openssl rand -hex 32).",
+    },
+    {
+      key: "domain_automation",
+      label: "Custom domains",
+      // A warning, not a failure: domains still connect without this, they
+      // just need a command run by hand for each one.
+      status: isDomainAutomationConfigured() ? "ok" : "warn",
+      detail: isDomainAutomationConfigured()
+        ? "Assigning a domain registers it with the host automatically."
+        : "Each domain needs 'vercel domains add' run by hand.",
+      hint: isDomainAutomationConfigured()
+        ? undefined
+        : "Set VERCEL_API_TOKEN (https://vercel.com/account/tokens) and VERCEL_PROJECT_ID so certificates are " +
+          "requested automatically. Missing that step leaves clients with a browser security warning.",
     },
   ];
 

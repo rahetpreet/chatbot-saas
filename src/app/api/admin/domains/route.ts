@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
 import { dnsInstructionsFor, validateCustomDomain } from "@/lib/services/tenant/domainResolver";
+import {
+  registerDomain,
+  unregisterDomain,
+  getDomainStatus,
+  isDomainAutomationConfigured,
+} from "@/lib/services/tenant/vercelDomains";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -18,7 +24,10 @@ export const maxDuration = 60;
  * last week may not resolve today, and a stale "verified" badge is worse than
  * no badge.
  */
-async function probe(domain: string): Promise<{ ok: boolean; detail: string; servesUs: boolean }> {
+async function probe(
+  domain: string,
+  automated: boolean,
+): Promise<{ ok: boolean; detail: string; servesUs: boolean }> {
   try {
     const response = await fetch(`https://${domain}/api/health`, {
       redirect: "follow",
@@ -50,7 +59,9 @@ async function probe(domain: string): Promise<{ ok: boolean; detail: string; ser
       return {
         ok: false,
         servesUs: false,
-        detail: "DNS is pointing here, but no certificate has been issued. Add this domain in Vercel.",
+        detail: automated
+          ? "DNS is pointing here, but the certificate is not ready yet. This usually clears within a few minutes."
+          : "DNS is pointing here, but no certificate has been issued. Add this domain in Vercel.",
       };
     }
     return { ok: false, servesUs: false, detail: "Not reachable yet. DNS may still be propagating." };
@@ -60,6 +71,7 @@ async function probe(domain: string): Promise<{ ok: boolean; detail: string; ser
 export async function GET(_req: NextRequest) {
   try {
     await requireSuperAdmin();
+    const automationOn = isDomainAutomationConfigured();
 
     // Every workspace, not only those already connected: this page is where a
     // domain gets assigned, so the operator needs to see the ones without one.
@@ -91,7 +103,12 @@ export async function GET(_req: NextRequest) {
           };
         }
 
-        const result = await probe(tenant.customDomain);
+        const result = await probe(tenant.customDomain, automationOn);
+
+        // When the domain is not serving, the host's own view separates the
+        // two causes an operator would otherwise have to guess between: DNS
+        // that has not propagated, and a hostname that was never registered.
+        const registration = result.ok ? null : await getDomainStatus(tenant.customDomain);
 
         // Keep the stored flag honest rather than letting it drift.
         if (result.ok !== Boolean(tenant.customDomainVerifiedAt)) {
@@ -111,13 +128,20 @@ export async function GET(_req: NextRequest) {
           domain: tenant.customDomain,
           live: result.ok,
           detail: result.detail,
-          dns: dnsInstructionsFor(tenant.customDomain),
+          registration,
+          dns: dnsInstructionsFor(tenant.customDomain, automationOn),
         };
       }),
     );
 
     const data = {
       domains,
+      automation: {
+        enabled: automationOn,
+        detail: automationOn
+          ? "Domains are registered with the host automatically when you assign them."
+          : "Set VERCEL_API_TOKEN and VERCEL_PROJECT_ID to register domains automatically. Until then, run vercel domains add for each one.",
+      },
       summary: {
         workspaces: domains.length,
         total: domains.filter((entry) => entry.domain).length,
@@ -199,11 +223,25 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
+    // Registering the hostname is what allows a certificate to be issued.
+    // Doing it here removes the step an operator could forget, which produced
+    // the worst failure this system has: DNS resolves, so the client thinks it
+    // is done, but every visitor gets a security warning.
+    const automationOn = isDomainAutomationConfigured();
+    const registration = await registerDomain(check.domain);
+
+    const data = {
+      domain: check.domain,
+      dns: dnsInstructionsFor(check.domain, automationOn),
+      registration,
+    };
     return NextResponse.json({
       success: true,
-      data: { domain: check.domain, dns: dnsInstructionsFor(check.domain) },
-      dns: dnsInstructionsFor(check.domain),
-      message: `${check.domain} assigned to ${tenant.name}. Send the client the DNS record, then add the domain on the platform.`,
+      data,
+      ...data,
+      message: registration.registered
+        ? `${check.domain} assigned to ${tenant.name} and registered for a certificate. Send the client the DNS record.`
+        : `${check.domain} assigned to ${tenant.name}. ${registration.detail}`,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -245,9 +283,16 @@ export async function DELETE(req: NextRequest) {
       }),
     ]);
 
+    // Leaving the hostname attached would keep it pointed at a workspace
+    // that no longer claims it.
+    const detached = await unregisterDomain(tenant.customDomain);
+
     return NextResponse.json({
       success: true,
-      data: { message: `${tenant.customDomain} disconnected. ${tenant.name} keeps its platform link.` },
+      data: {
+        message: `${tenant.customDomain} disconnected. ${tenant.name} keeps its platform link.`,
+        detached,
+      },
     });
   } catch (error: any) {
     return NextResponse.json(

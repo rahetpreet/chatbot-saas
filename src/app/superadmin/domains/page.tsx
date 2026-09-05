@@ -27,7 +27,7 @@ interface DnsRecord {
 }
 
 interface DnsStep {
-  who: "client" | "operator";
+  who: "client" | "operator" | "done";
   title: string;
   detail: string;
 }
@@ -43,6 +43,13 @@ interface Dns {
   steps?: DnsStep[];
 }
 
+interface Registration {
+  known: boolean;
+  verified: boolean;
+  misconfigured: boolean;
+  detail: string;
+}
+
 interface DomainRow {
   tenantId: string;
   tenantName: string;
@@ -51,6 +58,7 @@ interface DomainRow {
   domain: string | null;
   live: boolean;
   detail: string;
+  registration?: Registration | null;
   dns: Dns | null;
 }
 
@@ -68,6 +76,7 @@ export default function SuperAdminDomainsPage() {
   const [summary, setSummary] = useState<{ workspaces: number; total: number; live: number; pending: number } | null>(
     null,
   );
+  const [automation, setAutomation] = useState<{ enabled: boolean; detail: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +98,7 @@ export default function SuperAdminDomainsPage() {
       const data = json.data || json;
       setRows(data.domains || []);
       setSummary(data.summary || null);
+      setAutomation(data.automation || null);
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -199,6 +209,25 @@ export default function SuperAdminDomainsPage() {
         </div>
       )}
 
+      {automation && !automation.enabled && (
+        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+          <Server className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-slate-700">
+            <span className="font-bold">Manual host registration.</span> {automation.detail}
+          </p>
+        </div>
+      )}
+
+      {automation?.enabled && (
+        <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-emerald-900">
+            <span className="font-bold">Automatic host registration is on.</span> {automation.detail} The client only
+            has to add the DNS record.
+          </p>
+        </div>
+      )}
+
       {summary && summary.pending > 0 && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
           <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
@@ -265,6 +294,9 @@ export default function SuperAdminDomainsPage() {
                         <span className="font-semibold">{row.tenantName}</span> · /c/{row.tenantSlug}
                       </p>
                       <p className="text-xs text-slate-700 mt-1">{row.detail}</p>
+                      {row.registration?.misconfigured && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">Host: {row.registration.detail}</p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -338,24 +370,34 @@ export default function SuperAdminDomainsPage() {
                           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Steps</p>
                           {row.dns.steps.map((step, index) => (
                             <div key={step.title} className="flex items-start gap-2 text-xs">
-                              <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                                {index + 1}
+                              <span
+                                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
+                                  step.who === "done"
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-slate-200 text-slate-700"
+                                }`}
+                              >
+                                {step.who === "done" ? <Check className="w-2.5 h-2.5" /> : index + 1}
                               </span>
                               <div className="min-w-0">
                                 <span className="font-bold text-slate-900">{step.title}</span>
                                 <span
                                   className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                    step.who === "operator"
-                                      ? "bg-indigo-100 text-indigo-700"
-                                      : "bg-slate-200 text-slate-600"
+                                    step.who === "done"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : step.who === "operator"
+                                        ? "bg-indigo-100 text-indigo-700"
+                                        : "bg-slate-200 text-slate-600"
                                   }`}
                                 >
-                                  {step.who === "operator" ? (
+                                  {step.who === "done" ? (
+                                    <Check className="w-2.5 h-2.5 inline mr-0.5" />
+                                  ) : step.who === "operator" ? (
                                     <Server className="w-2.5 h-2.5 inline mr-0.5" />
                                   ) : (
                                     <User className="w-2.5 h-2.5 inline mr-0.5" />
                                   )}
-                                  {step.who === "operator" ? "you" : "client"}
+                                  {step.who === "done" ? "done" : step.who === "operator" ? "you" : "client"}
                                 </span>
                                 <p className="text-slate-600 mt-0.5 break-words">{step.detail}</p>
                               </div>

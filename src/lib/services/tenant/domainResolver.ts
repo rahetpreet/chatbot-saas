@@ -91,7 +91,7 @@ export function validateCustomDomain(input: string): { valid: boolean; domain: s
  * The DNS the customer has to create. A subdomain uses CNAME; an apex domain
  * cannot, so it gets Vercel's A record instead.
  */
-export function dnsInstructionsFor(domain: string) {
+export function dnsInstructionsFor(domain: string, automated = false) {
   const labels = domain.split(".");
   const isApex = labels.length <= 2;
 
@@ -143,7 +143,13 @@ export function dnsInstructionsFor(domain: string) {
       "Do not open the address until after the DNS record exists. Checking too early makes your network cache " +
       "'not found' for around 30 minutes, and it will keep failing for you while working for everyone else. " +
       "If that happens, use mobile data to confirm, or set the device DNS to 1.1.1.1.",
-    /** Ordered, so the panel can show exactly who does what next. */
+    /**
+     * Ordered, so the panel can show exactly who does what next.
+     *
+     * When registration is automated the middle step is already done, and
+     * listing it anyway would invite an operator to repeat work or assume
+     * something is outstanding.
+     */
     steps: [
       {
         who: "client" as const,
@@ -152,11 +158,21 @@ export function dnsInstructionsFor(domain: string) {
           isApex ? "" : " Either the A record or the CNAME works — create one, not both."
         }`,
       },
-      {
-        who: "operator" as const,
-        title: "Add the domain to the platform",
-        detail: `Run: vercel domains add ${domain} — or add it under Vercel → Project → Settings → Domains. This is what issues the TLS certificate.`,
-      },
+      ...(automated
+        ? [
+            {
+              who: "done" as const,
+              title: "Registered for a certificate",
+              detail: "Done automatically when the domain was assigned. Nothing to run.",
+            },
+          ]
+        : [
+            {
+              who: "operator" as const,
+              title: "Add the domain to the platform",
+              detail: `Run: vercel domains add ${domain} — or add it under Vercel → Project → Settings → Domains. This is what issues the TLS certificate.`,
+            },
+          ]),
       {
         who: "operator" as const,
         title: "Verify it is serving",

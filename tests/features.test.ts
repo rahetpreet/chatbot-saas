@@ -7,6 +7,7 @@ import {
   validateCustomDomain,
   dnsInstructionsFor,
 } from "../src/lib/services/tenant/domainResolver";
+import { isDomainAutomationConfigured, registerDomain } from "../src/lib/services/tenant/vercelDomains";
 import {
   encryptSecret,
   decryptSecret,
@@ -452,4 +453,73 @@ test("empty link parameters are dropped rather than sent blank", () => {
   assert.equal(url.searchParams.get("campaign"), "spring");
   assert.equal(url.searchParams.has("contact"), false);
   assert.equal(url.searchParams.has("flowId"), false);
+});
+
+test("DNS steps drop the manual host step once registration is automated", () => {
+  // The manual step is the one an operator forgets, and forgetting it leaves
+  // the client with a browser security warning. When it is done automatically,
+  // still listing it would invite the operator to repeat work or to believe
+  // something is outstanding.
+  const manual = dnsInstructionsFor("chat.acme.com");
+  const manualStep = manual.steps.find((step) => step.who === "operator" && /vercel domains add/.test(step.detail));
+  assert.ok(manualStep, "without automation the operator must be told the command to run");
+
+  const automated = dnsInstructionsFor("chat.acme.com", true);
+  assert.equal(
+    automated.steps.some((step) => /vercel domains add/.test(step.detail)),
+    false,
+    "an automated setup must not ask the operator to run the command",
+  );
+  assert.ok(
+    automated.steps.some((step) => step.who === "done"),
+    "the completed registration should be shown as done, not hidden",
+  );
+
+  // The client's DNS record is still theirs to create either way -- automation
+  // covers our side of the handshake, not theirs.
+  for (const dns of [manual, automated]) {
+    assert.ok(
+      dns.steps.some((step) => step.who === "client"),
+      "the client always has to create the DNS record",
+    );
+  }
+});
+
+test("domain automation is off unless both credentials are present", () => {
+  const saved = { token: process.env.VERCEL_API_TOKEN, project: process.env.VERCEL_PROJECT_ID };
+  try {
+    // A half-configured setup must not claim to be automated, or the panel
+    // would hide the manual step while nothing is actually registering.
+    delete process.env.VERCEL_API_TOKEN;
+    process.env.VERCEL_PROJECT_ID = "prj_test";
+    assert.equal(isDomainAutomationConfigured(), false);
+
+    process.env.VERCEL_API_TOKEN = "token";
+    delete process.env.VERCEL_PROJECT_ID;
+    assert.equal(isDomainAutomationConfigured(), false);
+
+    process.env.VERCEL_PROJECT_ID = "prj_test";
+    assert.equal(isDomainAutomationConfigured(), true);
+  } finally {
+    if (saved.token) process.env.VERCEL_API_TOKEN = saved.token;
+    else delete process.env.VERCEL_API_TOKEN;
+    if (saved.project) process.env.VERCEL_PROJECT_ID = saved.project;
+    else delete process.env.VERCEL_PROJECT_ID;
+  }
+});
+
+test("registering a domain never blocks the assignment", async () => {
+  const saved = { token: process.env.VERCEL_API_TOKEN, project: process.env.VERCEL_PROJECT_ID };
+  try {
+    // With automation off, the assignment still has to succeed and the
+    // operator has to be told exactly what is left to do by hand.
+    delete process.env.VERCEL_API_TOKEN;
+    const result = await registerDomain("chat.acme.com");
+    assert.equal(result.registered, false);
+    assert.equal(result.manual, true);
+    assert.match(result.detail, /vercel domains add chat\.acme\.com/);
+  } finally {
+    if (saved.token) process.env.VERCEL_API_TOKEN = saved.token;
+    if (saved.project) process.env.VERCEL_PROJECT_ID = saved.project;
+  }
 });

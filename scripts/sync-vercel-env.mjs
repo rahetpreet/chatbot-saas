@@ -48,6 +48,12 @@ const SYNCED = [
   { key: "GROQ_API_KEY", why: "Backup provider. Free key at https://console.groq.com/keys" },
   { key: "OPENROUTER_API_KEY", why: "Optional third provider." },
   {
+    key: "VERCEL_API_TOKEN",
+    why: "Registers custom domains automatically. Create at https://vercel.com/account/tokens",
+  },
+  { key: "VERCEL_PROJECT_ID", why: "From .vercel/project.json. Injected on Vercel, so usually not needed here." },
+  { key: "VERCEL_TEAM_ID", why: "Only when the project belongs to a team. This is orgId in .vercel/project.json." },
+  {
     key: "STORAGE_PROVIDER",
     why: "Must be 'blob' in production; 'local' is refused on serverless.",
     rejectIf: (value) => value === "local" && "'local' is refused in production — set it to 'blob'",
