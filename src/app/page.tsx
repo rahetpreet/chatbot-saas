@@ -12,9 +12,32 @@ import {
   Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { resolveTenantByHost } from "@/lib/services/tenant/domainResolver";
 import { CampaignChatContent } from "@/components/chat/HostedChat";
+
+/**
+ * A workspace serving its own domain must not advertise ours.
+ *
+ * The layout sets the platform's marketing title, which is right for the
+ * marketing site and wrong for chat.acme.com — a visitor there should see the
+ * business they are talking to in their browser tab, not the software behind
+ * it. That is the entire point of a custom domain.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const host = (await headers()).get("host");
+  const tenant = await resolveTenantByHost(host);
+  if (!tenant) return {};
+
+  return {
+    title: `Chat with ${tenant.name}`,
+    description: `Talk to the ${tenant.name} team.`,
+    // A white-labelled page has no business being indexed under our name, and
+    // the same chat is reachable at the platform URL anyway.
+    robots: { index: false, follow: false },
+  };
+}
 
 /**
  * The root route is shared between the marketing site and any workspace that
