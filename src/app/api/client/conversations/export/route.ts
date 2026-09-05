@@ -99,7 +99,6 @@ export async function GET(req: NextRequest) {
     const { tenantId } = await requireTenantRole([
       "CLIENT_OWNER",
       "CLIENT_ADMIN",
-      "CLIENT_AGENT",
       "CLIENT_VIEWER",
     ]);
 

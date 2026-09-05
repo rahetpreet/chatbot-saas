@@ -4,7 +4,7 @@ import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const search = searchParams.get("search")?.slice(0, 160);
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT"]);
+    const { tenantId, session } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const { id, status, score, contactInfo, collectedFields } = await req.json();
     if (typeof id !== "string") return NextResponse.json({ error: "Lead ID is required" }, { status: 400 });
     const data: Record<string, unknown> = {};

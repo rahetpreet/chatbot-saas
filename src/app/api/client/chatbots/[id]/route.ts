@@ -5,7 +5,7 @@ import { validateFlowGraph } from "@/lib/services/flow/validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const { id } = await params;
     const flow = await prisma.flow.findFirst({ where: { id, tenantId, deletedAt: null }, include: { _count: { select: { conversations: true, analyticsEvents: true } } } });
     if (!flow) return NextResponse.json({ error: "Flow not found" }, { status: 404 });

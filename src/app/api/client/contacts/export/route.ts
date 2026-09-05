@@ -5,7 +5,7 @@ import { requireTenantRole } from "@/lib/services/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const { searchParams } = new URL(req.url);
     const format = searchParams.get("format") === "json" ? "json" : "csv";
     const search = searchParams.get("search")?.trim().slice(0, 100);

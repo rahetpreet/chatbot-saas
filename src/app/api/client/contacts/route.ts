@@ -5,7 +5,7 @@ import { validateRequest, createContactSchema } from "@/lib/validation";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search")?.trim().slice(0, 100);
 
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN"]);
     const body = await req.json();
     
     const validation = await validateRequest(createContactSchema, body);

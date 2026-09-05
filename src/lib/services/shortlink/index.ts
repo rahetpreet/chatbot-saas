@@ -113,13 +113,20 @@ export async function resolveShortLink(code: string): Promise<{ targetUrl: strin
   });
   if (!link) return null;
 
-  // Click counting must never block or fail the redirect.
-  prisma.shortLink
-    .update({
+  // Awaited, not fire-and-forget. A serverless function is frozen the moment
+  // it returns a response, so a floating promise was simply never delivered
+  // and every click counted as zero. The write is one indexed update against
+  // a database in the same region, so the cost is a few milliseconds; a click
+  // that is not counted is worth more than that.
+  try {
+    await prisma.shortLink.update({
       where: { id: link.id },
       data: { clickCount: { increment: 1 }, lastClickAt: new Date() },
-    })
-    .catch((error) => console.warn("[shortlink] could not record click:", error));
+    });
+  } catch (error) {
+    // Still redirect: losing a statistic must never cost the visitor the page.
+    console.warn("[shortlink] could not record click:", error);
+  }
 
   return { targetUrl: link.targetUrl };
 }

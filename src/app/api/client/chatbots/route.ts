@@ -7,7 +7,7 @@ import { assertUsageAvailable } from "@/lib/services/subscription/planLimits";
 
 export async function GET(req: NextRequest) {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const flows = await FlowRepository.findByTenant(tenantId);
 
     return NextResponse.json({ flows });

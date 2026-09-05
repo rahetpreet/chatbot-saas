@@ -5,7 +5,7 @@ import { slugify } from "@/lib/utils";
 
 export async function GET() {
   try {
-    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_AGENT", "CLIENT_VIEWER"]);
+    const { tenantId } = await requireTenantRole(["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"]);
     const campaigns = await prisma.campaign.findMany({ where: { tenantId, deletedAt: null }, orderBy: { createdAt: "desc" }, include: { contacts: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }, _count: { select: { contacts: true } } } });
     return NextResponse.json({ campaigns });
   } catch (error: any) {
