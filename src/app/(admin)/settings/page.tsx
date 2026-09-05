@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { CustomDomainPanel } from "@/components/settings/CustomDomainPanel";
 import { KnowledgeImport } from "@/components/settings/KnowledgeImport";
 import { TeamPanel } from "@/components/settings/TeamPanel";
 import {
@@ -27,7 +26,7 @@ import {
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"ai" | "knowledge" | "team" | "domain" | "security">("ai");
+  const [activeTab, setActiveTab] = useState<"ai" | "knowledge" | "team" | "security">("ai");
   const [aiPlatform, setAiPlatform] = useState<{ available: boolean; provider: string | null; model: string | null } | null>(null);
 
   // Security & Password state
@@ -207,7 +206,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Settings & Integrations</h1>
         <p className="text-sm text-slate-500">
-          Turn AI answering on or off, teach the bot about your business, and connect your own domain.
+          Turn AI answering on or off, teach the bot about your business, and manage your team.
         </p>
       </div>
 
@@ -241,16 +240,6 @@ export default function SettingsPage() {
         >
           <Headset className="w-4 h-4" />
           <span>Team &amp; Agents</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("domain")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === "domain" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
-          }`}
-        >
-          <Globe className="w-4 h-4" />
-          <span>Custom Domain</span>
         </button>
 
         <button
@@ -447,8 +436,6 @@ export default function SettingsPage() {
 
       {/* TAB 4: Security & Password */}
       {activeTab === "team" && <TeamPanel />}
-
-      {activeTab === "domain" && <CustomDomainPanel />}
 
       {activeTab === "security" && (
         <div className="space-y-4 animate-fade-in">

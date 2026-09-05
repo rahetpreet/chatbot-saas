@@ -127,7 +127,41 @@ export function dnsInstructionsFor(domain: string) {
      * visitors get a security warning or a redirect loop.
      */
     proxyWarning:
-      "If your DNS is on Cloudflare, set this record to DNS only (grey cloud, not orange). A proxied record stops the certificate being issued.",
+      "If the DNS is on Cloudflare, set this record to DNS only (grey cloud, not orange). A proxied record stops the certificate being issued.",
+    /**
+     * The most common false alarm in domain onboarding.
+     *
+     * Resolvers cache "no such name" as readily as they cache a real answer,
+     * for the zone's negative TTL — typically 30 minutes. Anyone who opens the
+     * URL before the record exists teaches their own resolver the domain is
+     * missing, and it then keeps failing for them long after the setup is
+     * correct. It looks exactly like a broken configuration.
+     */
+    cacheWarning:
+      "Do not open the address until after the DNS record exists. Checking too early makes your network cache " +
+      "'not found' for around 30 minutes, and it will keep failing for you while working for everyone else. " +
+      "If that happens, use mobile data to confirm, or set the device DNS to 1.1.1.1.",
+    /** Ordered, so the panel can show exactly who does what next. */
+    steps: [
+      {
+        who: "client" as const,
+        title: "Create the DNS record",
+        detail: `At the DNS provider for ${domain}, add the record shown above.${
+          isApex ? "" : " Either the A record or the CNAME works — create one, not both."
+        }`,
+      },
+      {
+        who: "operator" as const,
+        title: "Add the domain to the platform",
+        detail: `Run: vercel domains add ${domain} — or add it under Vercel → Project → Settings → Domains. This is what issues the TLS certificate.`,
+      },
+      {
+        who: "operator" as const,
+        title: "Verify it is serving",
+        detail:
+          "Use Re-check below. It makes a real request and confirms the response came from this application, not merely that something answered.",
+      },
+    ],
     // Storing the domain is only half the job: Vercel must also terminate TLS
     // for it, and that is done in the project's own domain settings.
     platformStep:

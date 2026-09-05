@@ -398,3 +398,23 @@ test("path hosting offers approaches that actually work", () => {
     assert.match(snippet.code, /chat-bot/, `${snippet.platform} does not use the requested path`);
   }
 });
+
+test("DNS guidance warns about caching a missing record", () => {
+  // The most common false alarm in onboarding: opening the URL before the
+  // record exists teaches your own resolver the domain does not exist, and it
+  // keeps failing for you long after the setup is correct.
+  const dns = dnsInstructionsFor("chat.acme.com");
+  assert.match(dns.cacheWarning || "", /before|too early/i);
+  assert.match(dns.cacheWarning || "", /mobile data|1\.1\.1\.1/i);
+});
+
+test("DNS guidance says who does each step", () => {
+  const dns = dnsInstructionsFor("chat.acme.com");
+  assert.ok(dns.steps && dns.steps.length >= 3, "expected an ordered checklist");
+
+  // Connecting a domain needs both parties; a checklist that does not say
+  // which is which is why domains sit half-connected.
+  assert.ok(dns.steps!.some((step) => step.who === "client"), "no client step");
+  assert.ok(dns.steps!.some((step) => step.who === "operator"), "no operator step");
+  assert.match(dns.steps![0].detail, /DNS/i);
+});
