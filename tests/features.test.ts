@@ -47,13 +47,36 @@ test("custom domain validation rejects the things people actually paste", () => 
 test("DNS guidance differs for apex and subdomains", () => {
   const sub = dnsInstructionsFor("chat.acme.com");
   assert.equal(sub.isApex, false);
-  assert.equal(sub.records[0].type, "CNAME");
+  // The A record leads because it is what Vercel itself asks for, on
+  // subdomains as well as apex domains.
+  assert.equal(sub.records[0].type, "A");
   assert.equal(sub.records[0].name, "chat");
+  // A CNAME also works for a subdomain, so it is offered as an alternative.
+  assert.ok(
+    sub.records.some((record) => record.type === "CNAME" && record.name === "chat"),
+    "a subdomain should also offer the CNAME option",
+  );
 
-  // An apex domain cannot use CNAME, so recommending one would not work.
+  // An apex domain cannot use CNAME, so offering one would send people down a
+  // path their DNS provider will reject.
   const apex = dnsInstructionsFor("acme.com");
   assert.equal(apex.isApex, true);
   assert.equal(apex.records[0].type, "A");
+  assert.equal(apex.records[0].name, "@");
+  assert.equal(
+    apex.records.some((record) => record.type === "CNAME"),
+    false,
+    "an apex domain must never be told to use CNAME",
+  );
+});
+
+test("DNS guidance warns about Cloudflare proxying", () => {
+  // The most common reason a correctly pointed domain still fails: with the
+  // orange cloud on, Cloudflare terminates TLS and the certificate is never
+  // issued.
+  const dns = dnsInstructionsFor("chat.acme.com");
+  assert.match(dns.proxyWarning || "", /cloudflare/i);
+  assert.match(dns.proxyWarning || "", /grey|dns only/i);
 });
 
 test("secrets round-trip through encryption", () => {

@@ -18,7 +18,7 @@ interface DomainState {
   verifiedAt: string | null;
   platformUrl: string;
   customUrl: string | null;
-  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string; accuracyNote?: string } | null;
+  dns: { domain: string; isApex: boolean; records: DnsRecord[]; platformStep: string; accuracyNote?: string; proxyWarning?: string } | null;
   pathHosting?: Array<{
     id: string;
     label: string;
@@ -326,6 +326,9 @@ export function CustomDomainPanel() {
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
               <p className="text-xs font-bold text-amber-900 mb-1">One more step, on our side</p>
               <p className="text-xs text-amber-800">{state.dns.platformStep}</p>
+              {state.dns.proxyWarning && (
+                <p className="text-xs text-amber-900 font-semibold mt-1.5">{state.dns.proxyWarning}</p>
+              )}
               {state.dns.accuracyNote && (
                 <p className="text-xs text-amber-800 mt-1.5">{state.dns.accuracyNote}</p>
               )}

@@ -218,26 +218,29 @@ async function main() {
       return `version ${res.json.flow?.version}`;
     });
 
-    await check("Chatbots", "publish refuses a broken graph", async () => {
+    await check("Chatbots", "saving a broken graph is refused", async () => {
       const bad = await api("/api/client/chatbots", {
         method: "POST",
         body: JSON.stringify({ name: "Audit Broken" }),
       });
       const badId = (bad.json?.flow || bad.json?.data?.flow)?.id;
-      must(badId, "could not create the second flow");
+      must(badId, "could not create the flow");
 
-      // A new flow ships with a valid starter template, so it must be emptied
-      // before this proves anything.
-      await api(`/api/client/chatbots/${badId}`, {
+      const res = await api(`/api/client/chatbots/${badId}`, {
         method: "PATCH",
         body: JSON.stringify({ nodes: "[]", edges: "[]" }),
       });
+      must(res.status === 400, `an empty graph was saved (status ${res.status})`);
+      must(res.json?.details?.length, "no reason was given");
 
-      const res = await api(`/api/client/chatbots/${badId}/publish`, { method: "POST" });
-      must(!res.json?.success, "an empty flow was published");
-      must(res.json?.details?.length, "no reason was given for the refusal");
-      await api(`/api/client/chatbots/${badId}`, { method: "DELETE" });
-      return `rejected: ${res.json.details[0]}`;
+      // Publish is the second line of defence, so it is worth proving on a
+      // graph that reached the database by some other route.
+      await prisma.flow.update({ where: { id: badId }, data: { nodes: "[]", edges: "[]" } });
+      const publish = await api(`/api/client/chatbots/${badId}/publish`, { method: "POST" });
+      must(!publish.json?.success, "an empty flow was published");
+
+      await prisma.flow.delete({ where: { id: badId } });
+      return `save and publish both refused: ${res.json.details[0]}`;
     });
 
     await check("Chatbots", "a new flow starts publishable", async () => {
@@ -614,7 +617,8 @@ async function main() {
       });
       must(res.json?.success, `status ${res.status}: ${res.text.slice(0, 140)}`);
       const dns = res.json?.dns || res.json?.data?.dns;
-      must(dns?.records?.[0]?.type === "CNAME", `expected CNAME, got ${dns?.records?.[0]?.type}`);
+      must(dns?.records?.[0]?.type === "A", `expected the A record first, got ${dns?.records?.[0]?.type}`);
+      must(dns.proxyWarning, "no Cloudflare proxy warning");
       return `${dns.records[0].type} ${dns.records[0].name} -> ${dns.records[0].value}`;
     });
 

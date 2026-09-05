@@ -96,23 +96,38 @@ export function dnsInstructionsFor(domain: string) {
   return {
     domain,
     isApex,
-    records: isApex
-      ? [
-          {
-            type: "A",
-            name: "@",
-            value: "76.76.21.21",
-            note: "Apex domains cannot use CNAME, so Vercel's A record is used instead.",
-          },
-        ]
-      : [
-          {
-            type: "CNAME",
-            name: labels[0],
-            value: "cname.vercel-dns.com",
-            note: `Creates ${domain}. Propagation usually takes a few minutes and can take up to 24 hours.`,
-          },
-        ],
+    // The A record is listed first because it is what Vercel itself asks for,
+    // on subdomains as well as apex domains. The CNAME also works for a
+    // subdomain and is offered as an alternative for anyone who prefers it;
+    // an apex domain cannot use CNAME at all.
+    records: [
+      {
+        type: "A",
+        name: isApex ? "@" : labels[0],
+        value: "76.76.21.21",
+        note: isApex
+          ? "Apex domains cannot use CNAME, so this is the only option."
+          : `Creates ${domain}. Propagation is usually minutes, occasionally up to 24 hours.`,
+      },
+      ...(isApex
+        ? []
+        : [
+            {
+              type: "CNAME",
+              name: labels[0],
+              value: "cname.vercel-dns.com",
+              note: "Alternative to the A record above. Create one or the other, not both.",
+            },
+          ]),
+    ],
+    /**
+     * Cloudflare proxying is the single most common reason a correctly
+     * pointed domain still fails: with the orange cloud on, Cloudflare
+     * terminates TLS itself, so the certificate can never be issued and
+     * visitors get a security warning or a redirect loop.
+     */
+    proxyWarning:
+      "If your DNS is on Cloudflare, set this record to DNS only (grey cloud, not orange). A proxied record stops the certificate being issued.",
     // Storing the domain is only half the job: Vercel must also terminate TLS
     // for it, and that is done in the project's own domain settings.
     platformStep:
