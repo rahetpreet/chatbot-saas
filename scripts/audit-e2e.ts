@@ -37,6 +37,7 @@ type Result = { area: string; name: string; ok: boolean; detail: string };
 const results: Result[] = [];
 let cookie = "";
 let agentCookie = "";
+let adminCookie = "";
 
 function record(area: string, name: string, ok: boolean, detail = "") {
   results.push({ area, name, ok, detail });
@@ -97,6 +98,7 @@ async function main() {
   const slug = `audit-${run}`;
   const ownerEmail = `audit-owner-${run}@example.test`;
   const agentEmail = `audit-agent-${run}@example.test`;
+  const adminEmail = `audit-admin-${run}@example.test`;
   const password = `Audit!${randomBytes(6).toString("hex")}A1`;
 
   let tenantId = "";
@@ -114,6 +116,18 @@ async function main() {
       data: { name: `Audit ${run}`, slug, status: "ACTIVE" },
     });
     tenantId = tenant.id;
+    // Platform operator: no tenantId, which is what makes a super admin.
+    await prisma.user.create({
+      data: {
+        email: adminEmail,
+        name: "Audit Admin",
+        role: "SUPER_ADMIN",
+        passwordHash: hash,
+        isActive: true,
+        status: "ACTIVE",
+        mustChangePassword: false,
+      },
+    });
     await prisma.user.create({
       data: {
         tenantId,
@@ -610,33 +624,74 @@ async function main() {
     });
 
     // ---- domains -----------------------------------------------------------
-    await check("Domains", "connect a custom domain", async () => {
-      const res = await api("/api/client/settings/domain", {
+    // ---- domains (operator-controlled) -------------------------------------
+    // Domains are assigned by the operator, so these run as a super admin
+    // rather than as the client.
+    await check("Domains", "operator assigns a domain", async () => {
+      const before = cookie;
+      cookie = "";
+      const login = await api("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ domain: `chat.audit-${run}.example` }),
+        body: JSON.stringify({ email: adminEmail, password }),
       });
-      must(res.json?.success, `status ${res.status}: ${res.text.slice(0, 140)}`);
+      must(login.status === 200, `super admin login failed (${login.status})`);
+      adminCookie = cookie;
+
+      const res = await api("/api/admin/domains", {
+        method: "POST",
+        body: JSON.stringify({ tenantId, domain: `chat.audit-${run}.example` }),
+      });
+      cookie = before;
+
+      must(res.json?.success, `assign failed: ${res.text.slice(0, 160)}`);
       const dns = res.json?.dns || res.json?.data?.dns;
       must(dns?.records?.[0]?.type === "A", `expected the A record first, got ${dns?.records?.[0]?.type}`);
       must(dns.proxyWarning, "no Cloudflare proxy warning");
-      return `${dns.records[0].type} ${dns.records[0].name} -> ${dns.records[0].value}`;
+      must(dns.cacheWarning, "no DNS-caching warning");
+      must(dns.steps?.length >= 3, "no ordered setup checklist");
+      must(
+        dns.steps.some((step: any) => step.who === "client") && dns.steps.some((step: any) => step.who === "operator"),
+        "the checklist does not say who does what",
+      );
+      return `${dns.records[0].type} -> ${dns.records[0].value}, ${dns.steps.length} steps`;
     });
 
-    await check("Domains", "a taken domain is refused", async () => {
-      const res = await api("/api/client/settings/domain", {
+    await check("Domains", "an invalid domain is refused", async () => {
+      const before = cookie;
+      cookie = adminCookie;
+      const res = await api("/api/admin/domains", {
         method: "POST",
-        body: JSON.stringify({ domain: "not a domain at all" }),
+        body: JSON.stringify({ tenantId, domain: "not a domain at all" }),
       });
+      cookie = before;
       must(!res.json?.success, "an invalid domain was accepted");
       return "rejected";
     });
 
-    await check("Domains", "verification reports honestly", async () => {
-      const res = await api("/api/client/settings/domain", { method: "PATCH" });
-      const verified = res.json?.verified ?? res.json?.data?.verified;
-      must(verified === false, "a domain that does not exist reported as live");
-      return "not verified, correctly";
+    await check("Domains", "a domain that does not exist reports as not serving", async () => {
+      const before = cookie;
+      cookie = adminCookie;
+      const res = await api("/api/admin/domains");
+      cookie = before;
+
+      const row = (res.json?.domains || res.json?.data?.domains || []).find(
+        (entry: any) => entry.tenantId === tenantId,
+      );
+      must(row, "the workspace is missing from the domain list");
+      must(row.live === false, "a domain that does not exist reported as live");
+      return `honest: ${row.detail.slice(0, 60)}`;
     });
+
+    await check("Domains", "the client can no longer set their own domain", async () => {
+      // Self-service left domains half-connected, so the route is gone.
+      const res = await api("/api/client/settings/domain", {
+        method: "POST",
+        body: JSON.stringify({ domain: "sneaky.example" }),
+      });
+      must(res.status === 404 || res.status === 405, `the route still answers (${res.status})`);
+      return `removed (${res.status})`;
+    });
+
 
     // ---- tenant isolation --------------------------------------------------
     await check("Security", "cannot read another workspace's conversation", async () => {
@@ -676,7 +731,7 @@ async function main() {
         await prisma.conversation.deleteMany({ where: { tenantId } });
         await prisma.tenant.delete({ where: { id: tenantId } });
       }
-      await prisma.user.deleteMany({ where: { email: { in: [ownerEmail, agentEmail] } } });
+      await prisma.user.deleteMany({ where: { email: { in: [ownerEmail, agentEmail, adminEmail] } } });
     } catch (error) {
       console.error("\nCLEANUP FAILED — remove workspace manually:", slug, error);
     }
