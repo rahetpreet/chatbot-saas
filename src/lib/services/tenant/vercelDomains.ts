@@ -152,8 +152,13 @@ export interface DomainStatus {
  * What the hosting platform believes about a hostname.
  *
  * Complements the live HTTP probe: the probe answers "is it serving?", this
- * answers "has a certificate been issued?", and a domain can be pointed
- * correctly while still failing the second.
+ * answers "is it registered here at all?".
+ *
+ * Note that the host's "verified" flag means the hostname is confirmed as
+ * belonging to this project -- NOT that DNS points at us. A subdomain of an
+ * already-verified domain comes back verified the instant it is added, with no
+ * DNS record anywhere. So this must never be worded as though it proves the
+ * domain works; the probe is the only thing that proves that.
  */
 export async function getDomainStatus(domain: string): Promise<DomainStatus> {
   const cfg = config();
@@ -179,7 +184,9 @@ export async function getDomainStatus(domain: string): Promise<DomainStatus> {
       known: true,
       verified,
       misconfigured: !verified,
-      detail: verified ? "Registered and verified." : "Registered, waiting for DNS to point here.",
+      detail: verified
+        ? "Registered here, so anything still missing is DNS, not registration."
+        : "Registered, but ownership is not confirmed yet. Check the DNS record.",
     };
   } catch (error: any) {
     return { known: false, verified: false, misconfigured: false, detail: error?.message || "network error" };
