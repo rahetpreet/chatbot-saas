@@ -84,8 +84,7 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
     { label: "Lead Analysis", href: "/analytics/leads", icon: Users },
     { label: "Conversation Analysis", href: "/analytics/conversations", icon: MessageSquare },
     { label: "Drop-off Analysis", href: "/analytics/drop-off", icon: TrendingDown },
-    { label: "Reports", href: "/analytics/reports", icon: FileBarChart },
-    { label: "Exports", href: "/analytics/exports", icon: Download },
+    { label: "Reports & Exports", href: "/analytics/reports", icon: FileBarChart },
 
     { section: "Account", label: "Settings", href: "/settings", icon: Settings },
   ];

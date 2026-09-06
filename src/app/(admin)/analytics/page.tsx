@@ -12,6 +12,7 @@ import {
   BarList,
   InsightList,
   EmptyState,
+  CampaignFilter,
   defaultRange,
   formatDuration,
   type RangeState,
@@ -28,7 +29,8 @@ import { BarChart3, ArrowRight } from "lucide-react";
  */
 export default function AnalyticsOverviewPage() {
   const [range, setRange] = useState<RangeState>(defaultRange());
-  const { data, loading, error } = useAnalytics("/api/client/analytics/overview", range);
+  const [campaignId, setCampaignId] = useState("");
+  const { data, loading, error } = useAnalytics("/api/client/analytics/overview", range, { campaignId: campaignId || null });
 
   const metrics = data?.metrics;
   const changes = data?.changes;
@@ -46,7 +48,10 @@ export default function AnalyticsOverviewPage() {
             Everything below is counted from recorded activity, not estimated.
           </p>
         </div>
-        <DateRangePicker value={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignFilter value={campaignId} onChange={setCampaignId} />
+          <DateRangePicker value={range} onChange={setRange} />
+        </div>
       </header>
 
       {error && (

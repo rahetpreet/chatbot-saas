@@ -1,6 +1,12 @@
 import prisma from "@/lib/prisma";
 import { EVENT } from "./events";
 import { DateRange, rate } from "./range";
+import {
+  conversationDuration,
+  durationByFlow,
+  conversationsByFlowStatus,
+  messagesByFlow,
+} from "./aggregate";
 
 /**
  * Lead, conversation, chatbot and version segments.
@@ -79,12 +85,17 @@ export async function leadAnalytics(tenantId: string, range: DateRange) {
 export async function conversationAnalytics(tenantId: string, range: DateRange) {
   const inRange = { gte: range.start, lte: range.end };
 
-  const [conversations, messageRows, aiConvRows, handoverRows] = await Promise.all([
-    prisma.conversation.findMany({
-      where: { tenantId, startedAt: inRange },
-      select: { id: true, sessionStatus: true, startedAt: true, lastActiveAt: true, closedAt: true },
-      take: 20000,
-    }),
+  // Grouped and averaged in the database. Fetching 20,000 conversations to
+  // count their statuses and average their length here was correct only up to
+  // that many; past it every figure on this screen was quietly short.
+  const byStatus = await prisma.conversation.groupBy({
+    by: ["sessionStatus"],
+    where: { tenantId, startedAt: inRange },
+    _count: { _all: true },
+  });
+
+  const [duration, messageRows, aiConvRows, handoverRows] = await Promise.all([
+    conversationDuration(tenantId, range),
     prisma.message.groupBy({
       by: ["senderType"],
       where: { conversation: { tenantId }, timestamp: inRange },
@@ -102,18 +113,14 @@ export async function conversationAnalytics(tenantId: string, range: DateRange) 
     }),
   ]);
 
-  const total = conversations.length;
-  const totalSeconds = conversations.reduce((sum, c) => {
-    const end = c.closedAt ?? c.lastActiveAt;
-    return sum + Math.max(0, (+end - +c.startedAt) / 1000);
-  }, 0);
+  const total = byStatus.reduce((sum, row) => sum + row._count._all, 0);
 
   const messagesBy = (type: string) => messageRows.find((m) => m.senderType === type)?._count._all || 0;
   const visitorMessages = messagesBy("VISITOR") + messagesBy("USER");
   const botMessages = messagesBy("BOT");
   const totalMessages = messageRows.reduce((sum, m) => sum + m._count._all, 0);
 
-  const statusCount = (status: string) => conversations.filter((c) => c.sessionStatus === status).length;
+  const statusCount = (status: string) => byStatus.find((row) => row.sessionStatus === status)?._count._all || 0;
 
   return {
     total,
@@ -121,7 +128,7 @@ export async function conversationAnalytics(tenantId: string, range: DateRange) 
     abandoned: statusCount("ABANDONED"),
     active: statusCount("ACTIVE"),
     inHandover: statusCount("HANDOVER"),
-    avgDurationSeconds: total ? Math.round(totalSeconds / total) : 0,
+    avgDurationSeconds: duration.averageSeconds,
     avgMessages: total ? Number((totalMessages / total).toFixed(1)) : 0,
     avgVisitorMessages: total ? Number((visitorMessages / total).toFixed(1)) : 0,
     avgBotMessages: total ? Number((botMessages / total).toFixed(1)) : 0,
@@ -151,17 +158,16 @@ export async function chatbotAnalytics(tenantId: string, range: DateRange): Prom
   const flows = await prisma.flow.findMany({
     where: { tenantId, deletedAt: null },
     select: { id: true, name: true, status: true, version: true },
-    take: 100,
   });
   if (!flows.length) return [];
 
   const ids = flows.map((f) => f.id);
-  const [conversations, leadRows, visitorRows, messageRows] = await Promise.all([
-    prisma.conversation.findMany({
-      where: { tenantId, startedAt: inRange, flowId: { in: ids } },
-      select: { id: true, flowId: true, sessionStatus: true, startedAt: true, lastActiveAt: true, closedAt: true },
-      take: 20000,
-    }),
+  // Per-flow counts, durations and message totals all computed in the database
+  // rather than by pulling every conversation into memory.
+  const [byFlow, durations, flowMessages, leadRows, visitorRows] = await Promise.all([
+    conversationsByFlowStatus(tenantId, range),
+    durationByFlow(tenantId, range),
+    messagesByFlow(tenantId, range),
     prisma.analyticsEvent.groupBy({
       by: ["flowId"],
       where: { tenantId, timestamp: inRange, eventType: EVENT.LEAD_CREATED, flowId: { in: ids } },
@@ -172,11 +178,6 @@ export async function chatbotAnalytics(tenantId: string, range: DateRange): Prom
       select: { flowId: true, visitorId: true },
       distinct: ["flowId", "visitorId"],
     }),
-    prisma.message.groupBy({
-      by: ["conversationId"],
-      where: { conversation: { tenantId, flowId: { in: ids } }, timestamp: inRange },
-      _count: { _all: true },
-    }),
   ]);
 
   const leadsBy = new Map(leadRows.map((r) => [r.flowId, r._count._all]));
@@ -185,16 +186,11 @@ export async function chatbotAnalytics(tenantId: string, range: DateRange): Prom
     if (!row.flowId) continue;
     visitorsBy.set(row.flowId, (visitorsBy.get(row.flowId) || 0) + 1);
   }
-  const messagesByConv = new Map(messageRows.map((r) => [r.conversationId, r._count._all]));
-
   return flows
     .map((flow) => {
-      const own = conversations.filter((c) => c.flowId === flow.id);
-      const seconds = own.reduce((sum, c) => {
-        const end = c.closedAt ?? c.lastActiveAt;
-        return sum + Math.max(0, (+end - +c.startedAt) / 1000);
-      }, 0);
-      const messages = own.reduce((sum, c) => sum + (messagesByConv.get(c.id) || 0), 0);
+      const stats = byFlow.get(flow.id);
+      const conversations = stats?.total ?? 0;
+      const messages = flowMessages.get(flow.id) ?? 0;
       const leads = leadsBy.get(flow.id) || 0;
 
       return {
@@ -203,13 +199,13 @@ export async function chatbotAnalytics(tenantId: string, range: DateRange): Prom
         status: flow.status,
         version: flow.version,
         visitors: visitorsBy.get(flow.id) || 0,
-        conversations: own.length,
-        completed: own.filter((c) => c.sessionStatus === "RESOLVED").length,
-        abandoned: own.filter((c) => c.sessionStatus === "ABANDONED").length,
+        conversations,
+        completed: stats?.byStatus.get("RESOLVED") ?? 0,
+        abandoned: stats?.byStatus.get("ABANDONED") ?? 0,
         leads,
-        conversionRate: rate(leads, own.length),
-        avgDurationSeconds: own.length ? Math.round(seconds / own.length) : 0,
-        avgMessages: own.length ? Number((messages / own.length).toFixed(1)) : 0,
+        conversionRate: rate(leads, conversations),
+        avgDurationSeconds: durations.get(flow.id) ?? 0,
+        avgMessages: conversations ? Number((messages / conversations).toFixed(1)) : 0,
       };
     })
     .sort((a, b) => b.conversations - a.conversations);

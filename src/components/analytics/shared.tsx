@@ -336,3 +336,61 @@ export function DataTable({
     </div>
   );
 }
+
+/**
+ * Narrows a report to one campaign.
+ *
+ * The options come from the analytics campaign endpoint rather than the
+ * campaigns list, so a campaign that was deleted stops appearing here while the
+ * numbers it produced stay in the reports.
+ */
+export function CampaignFilter({
+  value,
+  onChange,
+  className = "",
+}: {
+  value: string;
+  onChange: (campaignId: string) => void;
+  className?: string;
+}) {
+  const [campaigns, setCampaigns] = React.useState<Array<{ campaignId: string; name: string }>>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    fetch("/api/client/analytics/campaigns?preset=last30")
+      .then((res) => res.json())
+      .then((json) => setCampaigns(json.success ? json.data.campaigns || [] : []))
+      .catch(() => setCampaigns([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Hidden entirely when there is nothing to choose between: a select with one
+  // option is a control that does nothing.
+  if (!loading && campaigns.length === 0) return null;
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={loading}
+      className={`rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 focus:border-indigo-500 focus:outline-none disabled:opacity-60 ${className}`}
+    >
+      <option value="">{loading ? "Loading campaigns…" : "All campaigns"}</option>
+      {campaigns.map((campaign) => (
+        <option key={campaign.campaignId} value={campaign.campaignId}>
+          {campaign.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Names the active filters, so a filtered report never looks like the whole picture. */
+export function FilterNotice({ campaignName }: { campaignName?: string | null }) {
+  if (!campaignName) return null;
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs text-indigo-900">
+      Showing <span className="font-bold">{campaignName}</span> only. Clear the campaign filter to see everything.
+    </div>
+  );
+}

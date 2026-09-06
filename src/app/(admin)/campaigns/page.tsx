@@ -19,6 +19,8 @@ import {
   Download,
   RefreshCw,
   Link2,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
@@ -46,6 +48,9 @@ export default function CampaignsPage() {
   const [qrContactSlug, setQrContactSlug] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchCampaigns = async () => {
     setLoading(true);
@@ -66,6 +71,36 @@ export default function CampaignsPage() {
       setCampaigns([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Deletes a campaign.
+   *
+   * The server archives rather than hard-deletes, so the conversations and
+   * leads the campaign produced keep their attribution and historical reports
+   * do not silently lose rows. The dialog says so, because "delete" that
+   * quietly means something else is worse than either behaviour.
+   */
+  const handleDeleteCampaign = async (campaign: any) => {
+    setDeleting(campaign.id);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/client/campaigns/${campaign.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        setActionError(data.error || "Could not delete this campaign.");
+        return;
+      }
+      setConfirmDelete(null);
+      // Clearing the selection first stops the detail pane rendering a campaign
+      // that no longer exists while the list reloads.
+      if (selectedCampaign?.id === campaign.id) setSelectedCampaign(null);
+      await fetchCampaigns();
+    } catch {
+      setActionError("Could not reach the server.");
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -245,9 +280,23 @@ export default function CampaignsPage() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h4 className="font-bold text-sm text-slate-900 truncate">{camp.name}</h4>
-                    <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded">
-                      /{camp.slug}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded">
+                        /{camp.slug}
+                      </span>
+                      <button
+                        onClick={(event) => {
+                          // The card itself selects the campaign, so the delete
+                          // control must not also trigger that.
+                          event.stopPropagation();
+                          setConfirmDelete(camp);
+                        }}
+                        className="p-1 rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                        title="Delete campaign"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
@@ -571,6 +620,66 @@ export default function CampaignsPage() {
                 <span>Download SVG</span>
               </a>
             )}
+          </div>
+        </div>
+      </Modal>
+      {/* Delete confirmation */}
+      <Modal
+        isOpen={Boolean(confirmDelete)}
+        onClose={() => {
+          setConfirmDelete(null);
+          setActionError(null);
+        }}
+        title="Delete this campaign?"
+        description="This removes the campaign from your workspace."
+      >
+        <div className="space-y-4 text-xs">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <p className="font-bold text-slate-900">{confirmDelete?.name}</p>
+            <p className="mt-0.5 font-mono text-[11px] text-slate-500">/{confirmDelete?.slug}</p>
+            <p className="mt-1.5 text-[11px] text-slate-600">
+              {confirmDelete?._count?.contacts || 0} contacts · {confirmDelete?.opensCount || 0} opens
+            </p>
+          </div>
+
+          {/* Stating exactly what survives, because "delete" here does not mean
+              the conversations and leads it produced disappear. */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="text-[11px] text-amber-900">
+              <p className="font-bold">Its links stop working.</p>
+              <p className="mt-0.5">
+                Conversations and leads this campaign produced are kept, and past reports still include them —
+                only the campaign itself is removed from your list.
+              </p>
+            </div>
+          </div>
+
+          {actionError && (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-800">
+              {actionError}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 text-xs"
+              onClick={() => {
+                setConfirmDelete(null);
+                setActionError(null);
+              }}
+            >
+              Keep it
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1 text-xs"
+              loading={deleting === confirmDelete?.id}
+              onClick={() => confirmDelete && handleDeleteCampaign(confirmDelete)}
+            >
+              Delete campaign
+            </Button>
           </div>
         </div>
       </Modal>

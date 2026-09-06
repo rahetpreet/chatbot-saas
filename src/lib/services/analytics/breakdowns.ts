@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { EVENT } from "./events";
-import { DateRange, rate, eachDay, dayKey } from "./range";
+import { DateRange, rate, eachDay, dayKey, runSequential } from "./range";
+import { durationByCampaign, countByDay, countByHourAndWeekday, readAll } from "./aggregate";
 import type { AnalyticsFilters } from "./queries";
 
 /**
@@ -48,7 +49,6 @@ export async function campaignAnalytics(
     where: { tenantId, deletedAt: null },
     select: { id: true, name: true, slug: true },
     orderBy: { createdAt: "desc" },
-    take: 200,
   });
   if (!campaigns.length) return [];
 
@@ -96,11 +96,7 @@ export async function campaignAnalytics(
       where: { tenantId, deletedAt: null, createdAt: inRange, campaignId: { in: ids } },
       _count: { _all: true },
     }),
-    prisma.conversation.findMany({
-      where: { tenantId, startedAt: inRange, campaignId: { in: ids } },
-      select: { campaignId: true, startedAt: true, lastActiveAt: true, closedAt: true },
-      take: 10000,
-    }),
+    durationByCampaign(tenantId, range),
   ]);
 
   const num = (rows: Array<{ campaignId: string | null; _count: { _all: number } }>, id: string) =>
@@ -112,16 +108,6 @@ export async function campaignAnalytics(
     uniqueByCampaign.set(row.campaignId, (uniqueByCampaign.get(row.campaignId) || 0) + 1);
   }
 
-  const durationByCampaign = new Map<string, { total: number; count: number }>();
-  for (const c of durations) {
-    if (!c.campaignId) continue;
-    const end = c.closedAt ?? c.lastActiveAt;
-    const entry = durationByCampaign.get(c.campaignId) || { total: 0, count: 0 };
-    entry.total += Math.max(0, (+end - +c.startedAt) / 1000);
-    entry.count += 1;
-    durationByCampaign.set(c.campaignId, entry);
-  }
-
   return campaigns.map((campaign) => {
     const linksGenerated = num(links, campaign.id);
     const linksOpened = num(opens, campaign.id);
@@ -131,7 +117,7 @@ export async function campaignAnalytics(
       forms.find((f) => f.campaignId === campaign.id && f.eventType === EVENT.FORM_STARTED)?._count._all || 0;
     const completed =
       forms.find((f) => f.campaignId === campaign.id && f.eventType === EVENT.FORM_COMPLETED)?._count._all || 0;
-    const duration = durationByCampaign.get(campaign.id);
+    const averageSeconds = durations.get(campaign.id) ?? 0;
 
     return {
       campaignId: campaign.id,
@@ -146,7 +132,7 @@ export async function campaignAnalytics(
       formsCompleted: completed,
       leads: leadCount,
       conversionRate: rate(leadCount, conversations),
-      avgConversationSeconds: duration?.count ? Math.round(duration.total / duration.count) : 0,
+      avgConversationSeconds: averageSeconds,
     };
   });
 }
@@ -182,8 +168,14 @@ export async function linkAnalytics(
   sort: LinkSort = "mostOpened",
   limit = 200,
 ): Promise<LinkStat[]> {
-  const links = await prisma.trackingLink.findMany({
-    where: { tenantId, deletedAt: null, createdAt: { lte: range.end } },
+  // Every link, read in pages. A cap here meant a workspace past it saw a
+  // silently truncated list with no indication anything was missing.
+  const links = await readAll<any>((cursorId, take) =>
+    prisma.trackingLink.findMany({
+      where: { tenantId, deletedAt: null, createdAt: { lte: range.end } },
+      orderBy: { id: "asc" },
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      take,
     select: {
       id: true,
       token: true,
@@ -195,9 +187,9 @@ export async function linkAnalytics(
       contact: { select: { name: true, email: true } },
       campaign: { select: { name: true } },
       flow: { select: { name: true } },
-    },
-    take: 1000,
-  });
+      },
+    }),
+  );
   if (!links.length) return [];
 
   const ids = links.map((l) => l.id);
@@ -286,11 +278,23 @@ export interface SourceStat {
  * explicitly rather than leaving a blank row, since blank reads as a bug.
  */
 export async function sourceAnalytics(tenantId: string, range: DateRange): Promise<SourceStat[]> {
-  const conversations = await prisma.conversation.findMany({
-    where: { tenantId, startedAt: { gte: range.start, lte: range.end } },
-    select: { id: true, visitorInfo: true, visitorId: true, campaignId: true },
-    take: 20000,
-  });
+  // Read in full, in pages. Source and device live inside a JSON blob the
+  // database cannot group by, so the rows are genuinely needed — but a cap here
+  // meant a busy workspace's traffic breakdown was quietly built from a slice.
+  const conversations = await readAll<{
+    id: string;
+    visitorInfo: string | null;
+    visitorId: string;
+    campaignId: string | null;
+  }>((cursorId, take) =>
+    prisma.conversation.findMany({
+      where: { tenantId, startedAt: { gte: range.start, lte: range.end } },
+      select: { id: true, visitorInfo: true, visitorId: true, campaignId: true },
+      orderBy: { id: "asc" },
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      take,
+    }),
+  );
   if (!conversations.length) return [];
 
   const leadRows = await prisma.lead.findMany({
@@ -362,11 +366,15 @@ export async function deviceAnalytics(
   tenantId: string,
   range: DateRange,
 ): Promise<{ devices: DeviceStat[]; browsers: DeviceStat[] }> {
-  const conversations = await prisma.conversation.findMany({
-    where: { tenantId, startedAt: { gte: range.start, lte: range.end } },
-    select: { id: true, visitorInfo: true },
-    take: 20000,
-  });
+  const conversations = await readAll<{ id: string; visitorInfo: string | null }>((cursorId, take) =>
+    prisma.conversation.findMany({
+      where: { tenantId, startedAt: { gte: range.start, lte: range.end } },
+      select: { id: true, visitorInfo: true },
+      orderBy: { id: "asc" },
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      take,
+    }),
+  );
 
   const leadRows = await prisma.lead.findMany({
     where: { tenantId, deletedAt: null, createdAt: { gte: range.start, lte: range.end } },
@@ -418,20 +426,15 @@ export interface TimelinePoint {
 
 /** Daily trend plus hour-of-day distribution. */
 export async function timelineAnalytics(tenantId: string, range: DateRange) {
-  const inRange = { gte: range.start, lte: range.end };
-
-  const [conversations, leads] = await Promise.all([
-    prisma.conversation.findMany({
-      where: { tenantId, startedAt: inRange },
-      select: { startedAt: true },
-      take: 50000,
-    }),
-    prisma.lead.findMany({
-      where: { tenantId, deletedAt: null, createdAt: inRange },
-      select: { createdAt: true },
-      take: 50000,
-    }),
-  ]);
+  // Grouped in the database rather than by pulling every conversation and lead
+  // into memory to bucket them by date here. That approach was capped at 50,000
+  // of each, so a busy workspace's chart silently flattened out.
+  const { convDays, leadDays, convClock, leadClock } = await runSequential({
+    convDays: () => countByDay("Conversation", tenantId, range),
+    leadDays: () => countByDay("Lead", tenantId, range),
+    convClock: () => countByHourAndWeekday("Conversation", tenantId, range),
+    leadClock: () => countByHourAndWeekday("Lead", tenantId, range),
+  });
 
   const daily = new Map<string, TimelinePoint>();
   for (const day of eachDay(range)) {
@@ -443,28 +446,28 @@ export async function timelineAnalytics(tenantId: string, range: DateRange) {
       messages: 0,
     });
   }
-  for (const c of conversations) {
-    const point = daily.get(dayKey(c.startedAt));
-    if (point) point.conversations += 1;
+  for (const row of convDays) {
+    const point = daily.get(row.day);
+    if (point) point.conversations = row.count;
   }
-  for (const l of leads) {
-    const point = daily.get(dayKey(l.createdAt));
-    if (point) point.leads += 1;
+  for (const row of leadDays) {
+    const point = daily.get(row.day);
+    if (point) point.leads = row.count;
   }
 
   const hourly = Array.from({ length: 24 }, (_, hour) => ({
     hour,
     label: `${String(hour).padStart(2, "0")}:00`,
-    conversations: 0,
-    leads: 0,
+    conversations: convClock.hourly[hour],
+    leads: leadClock.hourly[hour],
   }));
-  for (const c of conversations) hourly[c.startedAt.getHours()].conversations += 1;
-  for (const l of leads) hourly[l.createdAt.getHours()].leads += 1;
 
   const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const weekday = weekdayNames.map((label) => ({ label, conversations: 0, leads: 0 }));
-  for (const c of conversations) weekday[c.startedAt.getDay()].conversations += 1;
-  for (const l of leads) weekday[l.createdAt.getDay()].leads += 1;
+  const weekday = weekdayNames.map((label, index) => ({
+    label,
+    conversations: convClock.weekday[index],
+    leads: leadClock.weekday[index],
+  }));
 
   const busiestHour = [...hourly].sort((a, b) => b.conversations - a.conversations)[0] || null;
   const bestHour = [...hourly].sort((a, b) => b.leads - a.leads)[0] || null;
@@ -504,6 +507,10 @@ export async function formFieldAnalytics(
     tenantId,
     timestamp: { gte: range.start, lte: range.end },
     ...(filters.flowId ? { flowId: filters.flowId } : {}),
+    // Honoured here too, or narrowing the drop-off screen to one campaign
+    // would filter the step table while leaving the form table unfiltered --
+    // two tables on one page disagreeing about what they are showing.
+    ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
     nodeId: { not: null },
   };
 
@@ -607,7 +614,7 @@ export interface JourneyEntry {
 export async function journeyFor(
   tenantId: string,
   key: { leadId?: string; contactId?: string; conversationId?: string; visitorId?: string },
-): Promise<{ entries: JourneyEntry[]; conversationIds: string[] }> {
+): Promise<{ entries: JourneyEntry[]; conversationIds: string[]; truncated: boolean }> {
   const or: any[] = [];
   if (key.leadId) or.push({ leadId: key.leadId });
   if (key.contactId) or.push({ contactId: key.contactId });
@@ -631,19 +638,22 @@ export async function journeyFor(
     const convs = await prisma.conversation.findMany({
       where: { tenantId, visitorId: key.visitorId },
       select: { id: true },
-      take: 200,
     });
     conversationIds.push(...convs.map((c) => c.id));
   }
   conversationIds = [...new Set(conversationIds)];
   if (conversationIds.length) or.push({ conversationId: { in: conversationIds } });
 
-  if (!or.length) return { entries: [], conversationIds: [] };
+  if (!or.length) return { entries: [], conversationIds: [], truncated: false };
 
+  // The only bound left in this module, and it is a rendering one: a browser
+  // cannot usefully draw an unbounded timeline. Asking for one more row than we
+  // will show is what lets the caller say so honestly instead of quietly
+  // presenting a partial history as complete.
   const events = await prisma.analyticsEvent.findMany({
     where: { tenantId, OR: or },
     orderBy: { timestamp: "asc" },
-    take: 1000,
+    take: 5000 + 1,
     select: {
       timestamp: true,
       eventType: true,
@@ -655,8 +665,11 @@ export async function journeyFor(
     },
   });
 
+  const truncated = events.length > 5000;
+
   return {
-    entries: events.map((e) => ({
+    truncated,
+    entries: events.slice(0, 5000).map((e) => ({
       at: e.timestamp,
       event: e.eventType,
       nodeId: e.nodeId,

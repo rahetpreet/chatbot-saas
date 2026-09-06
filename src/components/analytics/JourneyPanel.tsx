@@ -152,6 +152,12 @@ export function JourneyPanel({
               })}
             </ol>
           )}
+          {data?.truncated && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              This person has more history than can be shown at once. The earliest 5,000 events are listed; the
+              full record is in the exported report.
+            </p>
+          )}
         </div>
 
         {all.length > entries.length && (

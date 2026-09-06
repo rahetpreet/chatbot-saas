@@ -69,6 +69,8 @@ export async function GET(req: NextRequest) {
         subject: { lead, contact, conversation, visitorId: visitorId || conversation?.visitorId || null },
         entries: journey.entries,
         conversationIds: journey.conversationIds,
+        // True when this person has more history than one screen can draw.
+        truncated: journey.truncated,
       },
       context,
     );

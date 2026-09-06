@@ -8,6 +8,7 @@ import {
   DateRangePicker,
   DataTable,
   EmptyState,
+  CampaignFilter,
   defaultRange,
   type RangeState,
 } from "@/components/analytics/shared";
@@ -22,8 +23,9 @@ import { TrendingDown } from "lucide-react";
  */
 export default function DropOffPage() {
   const [range, setRange] = useState<RangeState>(defaultRange());
-  const { data, loading, error } = useAnalytics("/api/client/analytics/flow", range);
-  const { data: formData } = useAnalytics("/api/client/analytics/forms", range);
+  const [campaignId, setCampaignId] = useState("");
+  const { data, loading, error } = useAnalytics("/api/client/analytics/flow", range, { campaignId: campaignId || null });
+  const { data: formData } = useAnalytics("/api/client/analytics/forms", range, { campaignId: campaignId || null });
 
   const nodes = [...(data?.nodes || [])].sort((a: any, b: any) => b.dropOffRate - a.dropOffRate);
   const THIN = 25;
@@ -40,7 +42,10 @@ export default function DropOffPage() {
             Every step, ordered by the share of people who reach it and do not finish it.
           </p>
         </div>
-        <DateRangePicker value={range} onChange={setRange} showCompare={false} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignFilter value={campaignId} onChange={setCampaignId} />
+          <DateRangePicker value={range} onChange={setRange} showCompare={false} />
+        </div>
       </header>
 
       {error && (

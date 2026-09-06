@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { EVENT, FUNNEL_STEPS } from "./events";
 import { DateRange, rate, runSequential } from "./range";
+import { conversationDuration } from "./aggregate";
 
 /**
  * Every analytics read in the product.
@@ -116,7 +117,7 @@ export async function overviewMetrics(
     contacts,
     linksGenerated,
     returning,
-    durations,
+    duration,
   } = await runSequential({
     counts: () => countByType(tenantId, range, filters),
     uniqueVisitors: () => distinctVisitors(tenantId, range, filters),
@@ -151,14 +152,10 @@ export async function overviewMetrics(
         },
       }),
     returning: () => prisma.visitor.count({ where: { tenantId, sessionCount: { gt: 1 }, lastSeenAt: inRange } }),
-    // Duration comes from the conversation's own timestamps rather than from
-    // events, so it stays correct for chats that predate event tracking.
-    durations: () =>
-      prisma.conversation.findMany({
-        where: convWhere,
-        select: { startedAt: true, lastActiveAt: true, closedAt: true },
-        take: 5000,
-      }),
+    // Averaged in the database over every matching conversation. This used to
+    // fetch 5,000 rows and add them up here, which was correct only until a
+    // workspace had 5,001 — after that the average was quietly wrong.
+    duration: () => conversationDuration(tenantId, range, filters),
   });
 
   const statusCount = (status: string) =>
@@ -166,11 +163,6 @@ export async function overviewMetrics(
   const conversations = byStatus.reduce((sum, row) => sum + row._count._all, 0);
   const completed = statusCount("RESOLVED");
   const abandoned = statusCount("ABANDONED");
-
-  const totalSeconds = durations.reduce((sum, c) => {
-    const end = c.closedAt ?? c.lastActiveAt;
-    return sum + Math.max(0, (+end - +c.startedAt) / 1000);
-  }, 0);
 
   const chatbotOpens = counts[EVENT.CHATBOT_OPENED] || 0;
 
@@ -190,7 +182,7 @@ export async function overviewMetrics(
     uniqueLinksOpened: uniqueLinkRows.length,
     conversionRate: rate(leads, conversations),
     engagementRate: rate(conversations, chatbotOpens || conversations),
-    avgConversationSeconds: durations.length ? Math.round(totalSeconds / durations.length) : 0,
+    avgConversationSeconds: duration.averageSeconds,
     avgMessagesPerConversation: conversations ? Number((messages / conversations).toFixed(1)) : 0,
   };
 }
@@ -402,34 +394,50 @@ export async function optionAnalytics(
   const base = eventWhere(tenantId, range, filters);
   const optionWhere = { ...base, eventType: EVENT.BUTTON_CLICKED, optionLabel: { not: null } };
 
-  const [rows, leadConvs, clickRows] = await Promise.all([
-    prisma.analyticsEvent.groupBy({
-      by: ["nodeId", "optionLabel"],
-      where: optionWhere,
-      _count: { _all: true },
-    }),
-    prisma.analyticsEvent.findMany({
-      where: { ...base, eventType: EVENT.LEAD_CREATED },
-      select: { conversationId: true },
-    }),
-    prisma.analyticsEvent.findMany({
-      where: optionWhere,
-      select: { optionLabel: true, nodeId: true, conversationId: true, visitorId: true },
-      take: 20000,
-    }),
-  ]);
+  // Kept outside runSequential: a Prisma groupBy loses its precise return type
+  // when passed through a generic, and this one's _count is read.
+  const rows = await prisma.analyticsEvent.groupBy({
+    by: ["nodeId", "optionLabel"],
+    where: optionWhere,
+    _count: { _all: true },
+  });
+
+  const { leadConvs, uniquePairs, leadPairs } = await runSequential({
+    leadConvs: () =>
+      prisma.analyticsEvent.findMany({
+        where: { ...base, eventType: EVENT.LEAD_CREATED },
+        select: { conversationId: true },
+      }),
+    // Grouped by (node, option, visitor): the number of rows per option IS its
+    // unique-visitor count, computed in the database. Fetching every click row
+    // to count them here was capped at 20,000 and silently wrong beyond it.
+    uniquePairs: () =>
+      prisma.analyticsEvent.findMany({
+        where: optionWhere,
+        select: { nodeId: true, optionLabel: true, visitorId: true },
+        distinct: ["nodeId", "optionLabel", "visitorId"],
+      }),
+    leadPairs: () =>
+      prisma.analyticsEvent.findMany({
+        where: optionWhere,
+        select: { nodeId: true, optionLabel: true, conversationId: true },
+        distinct: ["nodeId", "optionLabel", "conversationId"],
+      }),
+  });
 
   const leadConvIds = new Set(leadConvs.map((r) => r.conversationId).filter(Boolean));
   const leadsByOption = new Map<string, number>();
-  const uniqueByOption = new Map<string, Set<string>>();
+  const uniqueByOption = new Map<string, number>();
 
-  for (const row of clickRows) {
+  for (const row of uniquePairs) {
+    if (!row.visitorId) continue;
     const key = `${row.nodeId}::${row.optionLabel}`;
-    if (row.conversationId && leadConvIds.has(row.conversationId)) {
-      leadsByOption.set(key, (leadsByOption.get(key) || 0) + 1);
-    }
-    if (!uniqueByOption.has(key)) uniqueByOption.set(key, new Set());
-    if (row.visitorId) uniqueByOption.get(key)!.add(row.visitorId);
+    uniqueByOption.set(key, (uniqueByOption.get(key) || 0) + 1);
+  }
+  for (const row of leadPairs) {
+    if (!row.conversationId || !leadConvIds.has(row.conversationId)) continue;
+    const key = `${row.nodeId}::${row.optionLabel}`;
+    leadsByOption.set(key, (leadsByOption.get(key) || 0) + 1);
   }
 
   const total = rows.reduce((sum, r) => sum + r._count._all, 0);
@@ -443,7 +451,7 @@ export async function optionAnalytics(
         nodeId: row.nodeId || "",
         label: row.optionLabel as string,
         clicks,
-        uniqueUsers: uniqueByOption.get(key)?.size || 0,
+        uniqueUsers: uniqueByOption.get(key) || 0,
         share: rate(clicks, total),
         leadsAfter,
         conversionAfter: rate(leadsAfter, clicks),

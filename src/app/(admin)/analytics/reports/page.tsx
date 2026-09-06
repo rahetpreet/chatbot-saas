@@ -14,7 +14,7 @@ import {
   rangeQuery,
   type RangeState,
 } from "@/components/analytics/shared";
-import { FileBarChart, Download, Trash2, Eye } from "lucide-react";
+import { FileBarChart, Download, Trash2, Eye, FileSpreadsheet, FileJson } from "lucide-react";
 
 /**
  * Report generation and history.
@@ -78,6 +78,37 @@ export default function ReportsPage() {
     }
   };
 
+  /**
+   * Generates a report and downloads it immediately.
+   *
+   * The download is always backed by a stored report rather than a one-off
+   * query, so a file someone was sent can always be traced back to a record.
+   */
+  const generateAndDownload = async (reportType: string, format: "csv" | "json") => {
+    setGenerating(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/client/reports?${rangeQuery(range)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: reportType }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error?.message || "Could not prepare the export.");
+        return;
+      }
+      window.location.href = `/api/client/reports/${json.data.report.id}/export?format=${format}`;
+      setNotice(`${json.data.report.label} downloaded and saved below.`);
+      await load();
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const view = async (id: string) => {
     const res = await fetch(`/api/client/reports/${id}`);
     const json = await res.json();
@@ -118,7 +149,10 @@ export default function ReportsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Generate a report</CardTitle>
-          <CardDescription>The period and filters you pick are stored with the report.</CardDescription>
+          <CardDescription>
+            The period you pick is stored with the report. Generate keeps it here to open later; CSV and JSON do
+            the same and download the file straight away.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center gap-2">
@@ -136,7 +170,27 @@ export default function ReportsPage() {
             <DateRangePicker value={range} onChange={setRange} showCompare={false} />
             <Button onClick={generate} disabled={generating} className="text-xs">
               {generating ? <Spinner className="mr-1.5 h-3.5 w-3.5" /> : null}
-              {generating ? "Generating…" : "Generate"}
+              {generating ? "Working…" : "Generate"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => generateAndDownload(type, "csv")}
+              disabled={generating}
+              className="text-xs"
+              title="Generate and download as CSV"
+            >
+              <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
+              CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => generateAndDownload(type, "json")}
+              disabled={generating}
+              className="text-xs"
+              title="Generate and download as JSON"
+            >
+              <FileJson className="mr-1.5 h-3.5 w-3.5" />
+              JSON
             </Button>
           </div>
         </CardContent>

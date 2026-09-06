@@ -8,6 +8,7 @@ import {
   DateRangePicker,
   DataTable,
   BarList,
+  CampaignFilter,
   defaultRange,
   type RangeState,
 } from "@/components/analytics/shared";
@@ -21,7 +22,8 @@ import { GitBranch } from "lucide-react";
  */
 export default function FlowAnalysisPage() {
   const [range, setRange] = useState<RangeState>(defaultRange());
-  const { data, loading, error } = useAnalytics("/api/client/analytics/flow", range);
+  const [campaignId, setCampaignId] = useState("");
+  const { data, loading, error } = useAnalytics("/api/client/analytics/flow", range, { campaignId: campaignId || null });
 
   const nodes = data?.nodes || [];
   const options = data?.options || [];
@@ -45,7 +47,10 @@ export default function FlowAnalysisPage() {
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">How each step of your chatbot performs.</p>
         </div>
-        <DateRangePicker value={range} onChange={setRange} showCompare={false} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignFilter value={campaignId} onChange={setCampaignId} />
+          <DateRangePicker value={range} onChange={setRange} showCompare={false} />
+        </div>
       </header>
 
       {error && (
