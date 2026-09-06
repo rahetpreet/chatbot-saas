@@ -368,6 +368,122 @@ async function main() {
       mustRefuse(!leaks(text) && !/success":true/.test(text), "a visitor token reached another company's chat");
       return `${res.status}`;
     });
+    // ---- Data & Reports ---------------------------------------------------
+    // Plant recognisable analytics for beta so a leak has something to show.
+    await prisma.analyticsEvent.createMany({
+      data: [
+        {
+          tenantId: b.tenant.id,
+          flowId: b.flow.id,
+          conversationId: b.conversation.id,
+          eventType: "NODE_ENTERED",
+          nodeId: "beta-node",
+          optionLabel: "SECRET-beta-node-label",
+          visitorId: "SECRET-beta-visitor",
+        },
+        {
+          tenantId: b.tenant.id,
+          flowId: b.flow.id,
+          conversationId: b.conversation.id,
+          eventType: "BUTTON_CLICKED",
+          nodeId: "beta-node",
+          optionLabel: "SECRET-beta-option",
+          visitorId: "SECRET-beta-visitor",
+        },
+        {
+          tenantId: b.tenant.id,
+          conversationId: b.conversation.id,
+          eventType: "LEAD_CREATED",
+          leadId: b.lead.id,
+          visitorId: "SECRET-beta-visitor",
+        },
+      ],
+    });
+
+    await attempt("analytics overview cannot be pointed at another company", async () => {
+      const res = await asA(`/api/client/analytics/overview?preset=last30&tenantId=${b.tenant.id}`);
+      mustRefuse(!leaks(res.text), "a tenantId in the query string redirected the report");
+      return "own workspace only";
+    });
+
+    await attempt("flow analysis shows only own nodes", async () => {
+      const res = await asA("/api/client/analytics/flow?preset=last30");
+      mustRefuse(!leaks(res.text), "beta's node labels appeared in alpha's flow analysis");
+      return "own nodes only";
+    });
+
+    await attempt("option analysis shows only own choices", async () => {
+      const res = await asA("/api/client/analytics/options?preset=last30");
+      mustRefuse(!leaks(res.text), "beta's button labels appeared in alpha's option analysis");
+      return "own options only";
+    });
+
+    await attempt("link analytics shows only own links", async () => {
+      const res = await asA("/api/client/analytics/links?preset=last30");
+      mustRefuse(!leaks(res.text), "beta's links appeared in alpha's link analytics");
+      return "own links only";
+    });
+
+    await attempt("campaign analytics shows only own campaigns", async () => {
+      const res = await asA("/api/client/analytics/campaigns?preset=last30");
+      mustRefuse(!leaks(res.text), "beta's campaign appeared in alpha's campaign analytics");
+      return "own campaigns only";
+    });
+
+    await attempt("read beta's campaign report by id", async () => {
+      const res = await asA(`/api/client/analytics/campaigns/${b.campaign.id}?preset=last30`);
+      mustRefuse(!leaks(res.text), "alpha opened beta's campaign report");
+      return `${res.status}`;
+    });
+
+    await attempt("read beta's node detail by id", async () => {
+      const res = await asA("/api/client/analytics/nodes/beta-node?preset=last30");
+      mustRefuse(!leaks(res.text), "alpha read beta's node analytics");
+      return `${res.status}`;
+    });
+
+    await attempt("open beta's lead journey", async () => {
+      const res = await asA(`/api/client/analytics/journey?leadId=${b.lead.id}&preset=last30`);
+      mustRefuse(!leaks(res.text), "alpha opened beta's lead journey");
+      return `${res.status}`;
+    });
+
+    await attempt("open a journey by beta's visitor id", async () => {
+      const res = await asA("/api/client/analytics/journey?visitorId=SECRET-beta-visitor&preset=last30");
+      // The visitor id is supplied by the caller, so this one has to be
+      // refused by the tenant filter on the event query itself.
+      mustRefuse(!/beta-node-label|SECRET-beta-option/.test(res.text), "a visitor id reached another company's events");
+      return `${res.status}`;
+    });
+
+    await attempt("read beta's stored report", async () => {
+      const snapshot = await prisma.reportSnapshot.create({
+        data: {
+          tenantId: b.tenant.id,
+          reportType: "executive",
+          rangeStart: new Date(Date.now() - 86400000),
+          rangeEnd: new Date(),
+          metrics: JSON.stringify({ note: "SECRET-beta-report" }),
+        },
+      });
+      const read = await asA(`/api/client/reports/${snapshot.id}`);
+      const exported = await asA(`/api/client/reports/${snapshot.id}/export?format=json`);
+      mustRefuse(!leaks(read.text) && !leaks(exported.text), "alpha read or exported beta's stored report");
+      return `${read.status}/${exported.status}`;
+    });
+
+    await attempt("list reports shows only own", async () => {
+      const res = await asA("/api/client/reports?preset=last30");
+      mustRefuse(!leaks(res.text), "beta's report appeared in alpha's report list");
+      return "own reports only";
+    });
+
+    await attempt("reach platform-wide analytics as a client", async () => {
+      const res = await asA("/api/admin/platform-analytics?preset=last30");
+      mustRefuse(res.status === 403 || res.status === 401, `expected refusal, got ${res.status}`);
+      return `${res.status}`;
+    });
+
   } finally {
     try {
       const convs = await prisma.conversation.findMany({ where: { tenantId: { in: made } }, select: { id: true } });
