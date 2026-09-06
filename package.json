@@ -15,7 +15,10 @@
     "postinstall": "prisma generate",
     "test:isolation": "tsx --test tests/tenant-isolation.test.ts",
     "audit:analytics": "tsx scripts/audit-analytics.ts",
-    "audit:isolation": "tsx scripts/audit-isolation.ts"
+    "audit:isolation": "tsx scripts/audit-isolation.ts",
+    "audit:domains": "tsx scripts/audit-domains.ts",
+    "audit:all": "npm test && npm run audit:e2e && npm run audit:analytics && npm run audit:isolation && npm run audit:domains",
+    "audit:e2e": "tsx scripts/audit-e2e.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
