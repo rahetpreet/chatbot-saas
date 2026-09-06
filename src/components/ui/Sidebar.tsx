@@ -93,6 +93,7 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
   const superAdminNavItems: NavItem[] = [
     { label: "Global Dashboard", href: "/superadmin/dashboard", icon: LayoutDashboard },
     { label: "Companies & Tenants", href: "/superadmin/tenants", icon: Building2 },
+    { label: "Platform Analytics", href: "/superadmin/platform-analytics", icon: BarChart3 },
     { label: "Platform Usage", href: "/superadmin/quotas", icon: Sliders },
     { label: "Client Domains", href: "/superadmin/domains", icon: Globe },
     { label: "System Check", href: "/superadmin/system-check", icon: Activity },

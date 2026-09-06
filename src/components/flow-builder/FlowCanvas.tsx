@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -33,6 +33,7 @@ import { CloseNode } from "./nodes/CloseNode";
 import { NodeConfigDrawer } from "./NodeConfigDrawer";
 import { FlowSimulatorModal } from "./FlowSimulatorModal";
 import { Button } from "@/components/ui/Button";
+import { withAnalytics, HeatmapControls, type HeatMetric, type NodeStat } from "./AnalyticsOverlay";
 import { Badge } from "@/components/ui/Badge";
 import {
   Save,
@@ -51,6 +52,7 @@ import {
   Headset,
   CheckCircle2,
   ChevronDown,
+  BarChart3,
 } from "lucide-react";
 import { FlowNodeData, NodeType } from "@/types";
 
@@ -84,6 +86,13 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
   const [flowVersion, setFlowVersion] = useState<number>(initialFlow.version || 1);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+
+  // Analytics Mode: real numbers drawn over the flow. Loaded on demand rather
+  // than with the builder, since most edits never open it.
+  const [analyticsMode, setAnalyticsMode] = useState(false);
+  const [heatMetric, setHeatMetric] = useState<HeatMetric>("traffic");
+  const [nodeStats, setNodeStats] = useState<NodeStat[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [publishErrors, setPublishErrors] = useState<string[] | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
@@ -120,7 +129,22 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
     }
   };
 
-  const nodeTypes = useMemo(
+  useEffect(() => {
+    if (!analyticsMode) return;
+    setStatsLoading(true);
+    fetch(`/api/client/analytics/flow?preset=last30&flowId=${initialFlow.id}`)
+      .then((res) => res.json())
+      .then((json) => setNodeStats(json.success ? json.data.nodes || [] : []))
+      .catch(() => setNodeStats([]))
+      .finally(() => setStatsLoading(false));
+  }, [analyticsMode, initialFlow.id]);
+
+  const statFor = useCallback(
+    (nodeId: string) => nodeStats.find((stat) => stat.nodeId === nodeId) ?? null,
+    [nodeStats],
+  );
+
+  const baseNodeTypes = useMemo(
     () => ({
       start: StartNode,
       message: MessageNode,
@@ -135,6 +159,17 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
     }),
     []
   );
+
+  // Wrapped once here so none of the ten node components needs to know that
+  // analytics exists. When the mode is off the wrapper renders the original
+  // component unchanged.
+  const nodeTypes = useMemo(() => {
+    const wrapped: Record<string, any> = {};
+    for (const [key, Component] of Object.entries(baseNodeTypes)) {
+      wrapped[key] = withAnalytics(Component as any, statFor, heatMetric, analyticsMode);
+    }
+    return wrapped;
+  }, [baseNodeTypes, statFor, heatMetric, analyticsMode]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -503,6 +538,26 @@ export function FlowCanvas({ initialFlow, tenantSlug }: FlowCanvasProps) {
           >
             <Play className="w-3.5 h-3.5 fill-indigo-600 text-indigo-600" />
             <span>Test Simulator</span>
+          </Button>
+
+          {/* Analytics Mode */}
+          {analyticsMode && (
+            <HeatmapControls
+              metric={heatMetric}
+              onMetric={setHeatMetric}
+              loading={statsLoading}
+              total={nodeStats.reduce((sum, stat) => sum + stat.entered, 0)}
+            />
+          )}
+          <Button
+            size="sm"
+            variant={analyticsMode ? "primary" : "outline"}
+            onClick={() => setAnalyticsMode((on) => !on)}
+            className="gap-1.5 text-xs"
+            title="Show real traffic on the flow"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Analytics</span>
           </Button>
 
           {/* Save Draft */}

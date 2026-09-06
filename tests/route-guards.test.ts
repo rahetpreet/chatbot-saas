@@ -50,6 +50,27 @@ test("no private route accepts a client-supplied tenantId", () => {
   assert.deepEqual(offenders, [], "these routes trust a client-supplied tenant");
 });
 
+/**
+ * Helpers that authenticate on a route's behalf.
+ *
+ * A route may delegate its guard, but only to a helper this suite has checked.
+ * Each entry here is verified by the test below to actually call a real guard,
+ * so adding a name cannot quietly excuse a route from authentication.
+ */
+const GUARD_HELPERS: Record<string, string> = {
+  analyticsContext: "src/lib/services/analytics/request.ts",
+};
+
+test("delegated auth helpers really do authenticate", () => {
+  for (const [helper, file] of Object.entries(GUARD_HELPERS)) {
+    const source = fs.readFileSync(path.join(process.cwd(), file), "utf8");
+    assert.ok(
+      /requireTenantRole|requireTenantAccess|requireSuperAdmin|requireAuth/.test(source),
+      `${helper} is treated as an auth guard but ${file} calls no real guard`,
+    );
+  }
+});
+
 test("every private route enforces authentication", () => {
   const offenders: string[] = [];
   for (const route of routes) {
@@ -59,7 +80,8 @@ test("every private route enforces authentication", () => {
       route.source.includes("requireTenantRole") ||
       route.source.includes("requireTenantAccess") ||
       route.source.includes("requireSuperAdmin") ||
-      route.source.includes("requireAuth");
+      route.source.includes("requireAuth") ||
+      Object.keys(GUARD_HELPERS).some((helper) => route.source.includes(helper));
     if (!guarded) offenders.push(route.rel);
   }
   assert.deepEqual(offenders, [], "these private routes have no authorization check");
