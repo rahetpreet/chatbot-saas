@@ -145,3 +145,25 @@ test("the debug password endpoint is gone", () => {
     "/api/debug returned a generated password and its hash without authentication",
   );
 });
+
+test("login is rate limited per account, not only per address", () => {
+  // A single per-IP counter locked out an office: colleagues share one public
+  // address, so the eleventh person to sign in that quarter-hour was refused
+  // because of the other ten. The tight limit belongs on the account, which is
+  // what an attacker actually targets.
+  const source = fs.readFileSync(path.join(API_ROOT, "auth", "login", "route.ts"), "utf8");
+
+  assert.match(source, /login-account:/, "there is no per-account rate limit");
+  assert.match(source, /login-ip:/, "the per-address ceiling is gone entirely");
+
+  // The address ceiling must be materially looser than the account one, or the
+  // office lockout simply comes back.
+  const account = Number(source.match(/PER_ACCOUNT\s*=\s*\{\s*limit:\s*(\d+)/)?.[1]);
+  const address = Number(source.match(/PER_ADDRESS\s*=\s*\{\s*limit:\s*(\d+)/)?.[1]);
+  assert.ok(account > 0 && account <= 20, `per-account limit should stay tight, found ${account}`);
+  assert.ok(address >= account * 5, `per-address ceiling ${address} is too close to the per-account ${account}`);
+
+  // Succeeding clears the account counter, so a user who mistypes and then
+  // gets in is not left one slip from a lockout.
+  assert.match(source, /resetRateLimit\(`login-account:/, "a successful sign-in does not clear the counter");
+});
