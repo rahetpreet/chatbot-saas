@@ -12,8 +12,14 @@ import type { AnalyticsFilters } from "./queries";
  * legitimate reason for a browser to send one.
  */
 
-/** Roles allowed to read analytics. Agents see conversations, not reports. */
-const ANALYTICS_ROLES = ["CLIENT_ADMIN", "CLIENT_USER"] as const;
+/**
+ * Roles allowed to read analytics.
+ *
+ * Matches the read-only routes elsewhere in the client API. Agents are the one
+ * deliberate exclusion: their console is scoped to the conversations handed to
+ * them, and workspace-wide reporting is not theirs to see.
+ */
+const ANALYTICS_ROLES = ["CLIENT_OWNER", "CLIENT_ADMIN", "CLIENT_VIEWER"] as const;
 
 export interface AnalyticsContext {
   tenantId: string;

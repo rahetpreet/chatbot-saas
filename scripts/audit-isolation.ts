@@ -369,6 +369,18 @@ async function main() {
       return `${res.status}`;
     });
     // ---- Data & Reports ---------------------------------------------------
+    // Prove alpha can read its OWN analytics first.
+    //
+    // Without this, a role misconfiguration would make every analytics attack
+    // below "pass" for the wrong reason: a 403 on beta's data proves nothing
+    // if alpha is refused its own data too. This exact mistake shipped once
+    // already -- the allow-list named a role that does not exist.
+    await attempt("alpha CAN read its own analytics (guards against a vacuous pass)", async () => {
+      const res = await asA("/api/client/analytics/overview?preset=last30");
+      mustRefuse(res.status === 200 && res.json?.success === true, `own analytics returned ${res.status}`);
+      return "200";
+    });
+
     // Plant recognisable analytics for beta so a leak has something to show.
     await prisma.analyticsEvent.createMany({
       data: [
