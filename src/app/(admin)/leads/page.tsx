@@ -4,11 +4,13 @@ import React, { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Download, Search, RefreshCw, Trash2, Mail, Phone, ExternalLink } from "lucide-react";
+import { Download, Search, RefreshCw, Trash2, Mail, Phone, ExternalLink, Route } from "lucide-react";
+import { JourneyPanel } from "@/components/analytics/JourneyPanel";
 import { formatDate } from "@/lib/utils";
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
+  const [journeyLeadId, setJourneyLeadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -214,6 +216,13 @@ export default function LeadsPage() {
                         <td className="p-3 text-slate-500 whitespace-nowrap">{formatDate(lead.createdAt)}</td>
                         <td className="p-3 text-right">
                           <button
+                            onClick={() => setJourneyLeadId(lead.id)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100"
+                            title="View full journey"
+                          >
+                            <Route className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => handleDeleteLead(lead.id)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100"
                             title="Delete"
@@ -230,6 +239,9 @@ export default function LeadsPage() {
           </div>
         </CardContent>
       </Card>
+      {journeyLeadId && (
+        <JourneyPanel leadId={journeyLeadId} onClose={() => setJourneyLeadId(null)} />
+      )}
     </div>
   );
 }

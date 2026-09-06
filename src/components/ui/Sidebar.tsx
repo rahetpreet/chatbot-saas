@@ -2,7 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import {
+  usePathname,
+  useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   GitBranch,
@@ -21,6 +23,12 @@ import {
   LogOut,
   Sparkles,
   ExternalLink,
+  BarChart3,
+  Bot,
+  Link as LinkIcon,
+  TrendingDown,
+  FileBarChart,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +63,9 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
     href: string;
     icon: any;
     badge?: string;
+    /** Starts a labelled group. The sidebar is long enough now that unbroken
+     *  lists made related screens hard to find. */
+    section?: string;
   }
 
   const clientNavItems: NavItem[] = [
@@ -64,7 +75,19 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
     { label: "Live Conversations", href: "/conversations", icon: MessageSquare },
     { label: "Captured Leads", href: "/leads", icon: Users },
     { label: "Widget Customizer", href: "/widget-customizer", icon: Palette },
-    { label: "Settings", href: "/settings", icon: Settings },
+
+    { section: "Data & Reports", label: "Overview", href: "/analytics", icon: BarChart3 },
+    { label: "Chatbot Analytics", href: "/analytics/chatbots", icon: Bot },
+    { label: "Campaign Analytics", href: "/analytics/campaigns", icon: Megaphone },
+    { label: "Link Analytics", href: "/analytics/links", icon: LinkIcon },
+    { label: "Flow Analysis", href: "/analytics/flow", icon: GitBranch },
+    { label: "Lead Analysis", href: "/analytics/leads", icon: Users },
+    { label: "Conversation Analysis", href: "/analytics/conversations", icon: MessageSquare },
+    { label: "Drop-off Analysis", href: "/analytics/drop-off", icon: TrendingDown },
+    { label: "Reports", href: "/analytics/reports", icon: FileBarChart },
+    { label: "Exports", href: "/analytics/exports", icon: Download },
+
+    { section: "Account", label: "Settings", href: "/settings", icon: Settings },
   ];
 
   const superAdminNavItems: NavItem[] = [
@@ -113,9 +136,18 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
       {/* Navigation Links */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && item.href !== "/superadmin/dashboard" && pathname.startsWith(item.href));
+          // "/analytics" is the parent of every other analytics route, so a
+          // prefix match would highlight Overview on all ten screens.
+          const exactOnly = item.href === "/dashboard" || item.href === "/superadmin/dashboard" || item.href === "/analytics";
+          const isActive = pathname === item.href || (!exactOnly && pathname.startsWith(item.href));
           const Icon = item.icon;
           return (
+            <React.Fragment key={item.href}>
+            {item.section && (
+              <p className="px-3 pt-4 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                {item.section}
+              </p>
+            )}
             <Link
               key={item.href}
               href={item.href}
@@ -134,6 +166,7 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
                 </span>
               )}
             </Link>
+            </React.Fragment>
           );
         })}
       </nav>
