@@ -30,6 +30,15 @@ export default function CampaignsPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [tenantSlug, setTenantSlug] = useState<string>('');
+  /**
+   * Where this company's chat actually lives.
+   *
+   * Links were built from window.location.origin, which is the *panel's*
+   * address — so a company with a connected domain still handed out links
+   * pointing at the platform. One company, one domain: the link a client sends
+   * their customers has to be on their own hostname.
+   */
+  const [publicOrigin, setPublicOrigin] = useState<string>('');
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -125,6 +134,13 @@ export default function CampaignsPage() {
         const user = data.user || data.data?.user;
         if (user?.tenant?.slug) {
           setTenantSlug(user.tenant.slug);
+          // Only a verified domain is used. An unverified one does not serve
+          // yet, so a link on it would simply fail for the recipient.
+          const domain = user.tenant.customDomain;
+          const verified = Boolean(user.tenant.customDomainVerifiedAt);
+          setPublicOrigin(
+            domain && verified ? `https://${domain}` : window.location.origin,
+          );
         }
       } catch {}
     };
@@ -326,7 +342,7 @@ export default function CampaignsPage() {
                     Campaign Slug: <span className="font-mono text-indigo-600 font-semibold">{selectedCampaign.slug}</span>
                   </CardDescription>
                   {/* Generic Campaign Link */}
-                  {tenantSlug && (
+                  {tenantSlug && publicOrigin && (
                     <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
                         <Link2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -334,10 +350,10 @@ export default function CampaignsPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-[11px] text-emerald-800 truncate flex-1">
-                          {`${typeof window !== 'undefined' ? window.location.origin : ''}/c/${tenantSlug}?campaign=${selectedCampaign.slug}`}
+                          {`${publicOrigin}/c/${tenantSlug}?campaign=${selectedCampaign.slug}`}
                         </span>
                         <button
-                          onClick={() => copyToClipboard(`${window.location.origin}/c/${tenantSlug}?campaign=${selectedCampaign.slug}`, 'generic-link')}
+                          onClick={() => copyToClipboard(`${publicOrigin}/c/${tenantSlug}?campaign=${selectedCampaign.slug}`, 'generic-link')}
                           className="p-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-700 transition-colors shrink-0"
                           title="Copy Generic Link"
                         >
@@ -414,7 +430,7 @@ export default function CampaignsPage() {
                         </tr>
                       ) : (
                         selectedCampaign.contacts.map((contact: any) => {
-                          const chatUrl = `${window.location.origin}/c/${tenantSlug}?campaign=${selectedCampaign.slug}&contact=${contact.customUrlSlug}`;
+                          const chatUrl = `${publicOrigin}/c/${tenantSlug}?campaign=${selectedCampaign.slug}&contact=${contact.customUrlSlug}`;
                           return (
                             <tr key={contact.id} className="hover:bg-slate-50">
                               <td className="p-3 font-semibold text-slate-900">

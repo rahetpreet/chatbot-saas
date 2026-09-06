@@ -25,7 +25,11 @@ export async function GET(req: NextRequest) {
     const conversations = await prisma.conversation.findMany({
           where,
           orderBy: { lastActiveAt: "desc" },
-          take: 100,
+          // A workspace past this simply stopped seeing its older conversations,
+          // with nothing on screen to say any were missing. Raised well beyond
+          // what an inbox is browsed to; the search box is the real answer for
+          // finding something old.
+          take: 1000,
           include: {
             flow: { select: { id: true, name: true } },
             campaignContact: {

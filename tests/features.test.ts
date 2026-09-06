@@ -15,6 +15,7 @@ import {
   decryptJsonFields,
   AI_SECRET_FIELDS,
 } from "../src/lib/security/crypto";
+import { describeVisitor } from "../src/lib/services/conversation/identity";
 import { assertUsageAvailable } from "../src/lib/services/subscription/planLimits";
 
 test("host normalisation strips ports and casing", () => {
@@ -522,4 +523,63 @@ test("registering a domain never blocks the assignment", async () => {
     if (saved.token) process.env.VERCEL_API_TOKEN = saved.token;
     if (saved.project) process.env.VERCEL_PROJECT_ID = saved.project;
   }
+});
+
+test("a conversation is identified by the person, not the browser id", () => {
+  // The bug this covers: every row in the inbox was titled with the raw
+  // visitorId, which one browser reuses for every chat, so a workspace with
+  // twenty-seven conversations showed the same opaque string twenty-seven
+  // times and no chat could be told from another.
+  const SHARED = "vis_g1nv96fg_1788715255689";
+
+  const typedTheirName = describeVisitor({
+    visitorId: SHARED,
+    collectedData: JSON.stringify({ full_name: "Rahetpreet Singh", email_address: "r@example.com" }),
+  });
+  assert.equal(typedTheirName.title, "Rahetpreet Singh");
+  assert.equal(typedTheirName.subtitle, "r@example.com");
+  assert.equal(typedTheirName.anonymous, false);
+
+  // An imported campaign contact outranks what was typed: somebody put that
+  // person in the system deliberately.
+  const imported = describeVisitor({
+    visitorId: SHARED,
+    collectedData: JSON.stringify({ full_name: "Typed Name" }),
+    campaignContact: { name: "Imported Name", email: "i@example.com" },
+  });
+  assert.equal(imported.title, "Imported Name");
+
+  // Field naming is the flow author's choice, so matching ignores case and
+  // separators.
+  for (const key of ["fullName", "Full Name", "full_name", "customer_name"]) {
+    const named = describeVisitor({ visitorId: SHARED, collectedData: JSON.stringify({ [key]: "Anita" }) });
+    assert.equal(named.title, "Anita", `${key} should be recognised as a name`);
+  }
+
+  // Falls back through email then phone before giving up.
+  assert.equal(
+    describeVisitor({ visitorId: SHARED, collectedData: JSON.stringify({ email: "a@b.com" }) }).title,
+    "a@b.com",
+  );
+  assert.equal(
+    describeVisitor({ visitorId: SHARED, collectedData: JSON.stringify({ mobile: "+91 90000 11122" }) }).title,
+    "+91 90000 11122",
+  );
+});
+
+test("an anonymous visitor still gets a readable, stable label", () => {
+  const first = describeVisitor({ visitorId: "vis_g1nv96fg_1788715255689", collectedData: "{}" });
+  assert.equal(first.title, "Visitor 5689");
+  assert.equal(first.anonymous, true);
+  assert.equal(first.initial, "V");
+
+  // Stable: the same browser reads as the same person across visits, which is
+  // the truth — two chats from one visitor are one visitor.
+  const again = describeVisitor({ visitorId: "vis_g1nv96fg_1788715255689", collectedData: null });
+  assert.equal(again.title, first.title);
+
+  // Never blank, whatever it is handed.
+  assert.equal(describeVisitor({}).title, "Anonymous visitor");
+  assert.equal(describeVisitor({ visitorId: "", collectedData: "not json" }).title, "Anonymous visitor");
+  assert.equal(describeVisitor({ visitorId: null, collectedData: "[]" }).title, "Anonymous visitor");
 });

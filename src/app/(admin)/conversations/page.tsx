@@ -22,6 +22,7 @@ import {
   Paperclip,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { describeVisitor } from "@/lib/services/conversation/identity";
 import { playNewConversationChime, isUnread, markConversationRead, markAllRead } from "@/lib/notificationSound";
 import { SkeletonList, LoadingPanel } from "@/components/ui/Loading";
 
@@ -184,9 +185,17 @@ function LiveConversationsInbox() {
     }
   };
 
-  const filtered = conversations.filter((c) => {
-    const contactName = c.campaignContact?.name || c.visitorId;
-    return contactName.toLowerCase().includes(search.toLowerCase());
+  const filtered = conversations.filter((conversation) => {
+    if (!search.trim()) return true;
+    // Searchable by anything that identifies the person: name, email, phone or
+    // the raw visitor id. Matching only the contact name meant a chat where the
+    // visitor typed their email could not be found by that email.
+    const who = describeVisitor(conversation);
+    const haystack = [who.title, who.name, who.email, who.phone, conversation.visitorId]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(search.toLowerCase());
   });
 
   return (
@@ -311,7 +320,7 @@ function LiveConversationsInbox() {
                           />
                         )}
                         <span className={unread ? "text-slate-900" : "text-slate-700 font-semibold"}>
-                          {conv.campaignContact?.name || conv.visitorId.substring(0, 14)}
+                          {describeVisitor(conv).title}
                         </span>
                       </h4>
                       <Badge
@@ -345,13 +354,23 @@ function LiveConversationsInbox() {
               <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
-                    {(selectedConversation.campaignContact?.name || "V").charAt(0).toUpperCase()}
+                    {describeVisitor(selectedConversation).initial}
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-slate-900 leading-tight">
-                      {selectedConversation.campaignContact?.name || selectedConversation.visitorId}
+                      {describeVisitor(selectedConversation).title}
                     </h3>
                     <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                      {/* Contact details the visitor gave, which used not to be
+                          shown anywhere even though the flow had captured them. */}
+                      {describeVisitor(selectedConversation).subtitle && (
+                        <>
+                          <span className="font-medium text-slate-600">
+                            {describeVisitor(selectedConversation).subtitle}
+                          </span>
+                          <span>•</span>
+                        </>
+                      )}
                       <span>Status: {selectedConversation.sessionStatus}</span>
                       <span>•</span>
                       <span>{selectedConversation.flow?.name || "Bot Flow"}</span>

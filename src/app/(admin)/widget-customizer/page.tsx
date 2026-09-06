@@ -19,6 +19,14 @@ import {
 
 export default function WidgetCustomizerPage() {
   const [tenantSlug, setTenantSlug] = useState("acme-corp");
+  /**
+   * The hostname the snippet should point at.
+   *
+   * Defaulted to the panel's own address, which meant a company with a
+   * connected domain pasted a snippet naming the platform onto their own
+   * website. One company, one domain — including in the embed code.
+   */
+  const [publicOrigin, setPublicOrigin] = useState("");
   const [settings, setSettings] = useState({
     primaryColor: "#4f46e5",
     secondaryColor: "#6366f1",
@@ -40,6 +48,20 @@ export default function WidgetCustomizerPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [domainInput, setDomainInput] = useState("");
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        const tenant = (data.user || data.data?.user)?.tenant;
+        // Only a verified domain: an unverified one does not serve yet, so a
+        // snippet pointing at it would silently fail on the client's site.
+        if (tenant?.customDomain && tenant?.customDomainVerifiedAt) {
+          setPublicOrigin(`https://${tenant.customDomain}`);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     fetch("/api/client/settings/widget")
@@ -91,7 +113,8 @@ export default function WidgetCustomizerPage() {
     setTimeout(() => setCopiedSnippet(null), 2000);
   };
 
-  const hostUrl = typeof window !== "undefined" ? window.location.origin : "https://yourdomain.com";
+  const hostUrl =
+    publicOrigin || (typeof window !== "undefined" ? window.location.origin : "https://yourdomain.com");
   const scriptTagCode = `<script src="${hostUrl}/widget.js" data-tenant-slug="${tenantSlug}" async></script>`;
   const iframeCode = `<iframe src="${hostUrl}/c/${tenantSlug}" width="100%" height="700" frameborder="0"></iframe>`;
 
