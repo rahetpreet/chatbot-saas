@@ -6,6 +6,7 @@ import { validateRequest, publicLeadSchema } from "@/lib/validation";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 import { markTrackingLinkConverted } from "@/lib/services/tracking";
 import { normalizeEmail, normalizeName, normalizePhone } from "@/lib/services/contact/normalize";
+import { EVENT, recordEventsTx } from "@/lib/services/analytics/events";
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -95,15 +96,24 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      await tx.analyticsEvent.create({
-        data: {
-          tenantId: conversation.tenantId,
-          flowId: conversation.flowId,
-          conversationId: conversation.id,
-          eventType: "CONVERSION",
-          metadata: JSON.stringify({ leadId: lead.id, contactId: contact.id }),
-        },
-      });
+      // The bottom two funnel steps. Written in the same transaction as the
+      // lead, so a LEAD_CREATED event can never exist without the lead it
+      // claims -- which would overstate conversion permanently.
+      const dimensions = {
+        tenantId: conversation.tenantId,
+        flowId: conversation.flowId,
+        flowVersion: conversation.flowVersion,
+        conversationId: conversation.id,
+        visitorId: conversation.visitorId,
+        campaignId: conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null,
+        trackingLinkId: conversation.trackingLinkId,
+        contactId: contact.id,
+        leadId: lead.id,
+      };
+      await recordEventsTx(tx, [
+        { ...dimensions, eventType: EVENT.FORM_COMPLETED },
+        { ...dimensions, eventType: EVENT.LEAD_CREATED },
+      ]);
 
       // Notify the workspace so a captured lead is not discovered only by
       // someone happening to open the leads page.

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import prisma from "@/lib/prisma";
+import { EVENT } from "@/lib/services/analytics/events";
 
 /**
  * Tracking links.
@@ -102,6 +103,9 @@ export async function resolveTrackingLink(token: string): Promise<ResolvedTracki
     select: {
       id: true,
       token: true,
+      tenantId: true,
+      campaignId: true,
+      contactId: true,
       flowId: true,
       campaignContactId: true,
       firstOpenedAt: true,
@@ -147,6 +151,20 @@ export async function resolveTrackingLink(token: string): Promise<ResolvedTracki
           }),
         ]
       : []),
+    // The first step of the funnel. Written in the same transaction as the
+    // counter it mirrors, so the two can never disagree about how many times
+    // a link was opened.
+    prisma.analyticsEvent.create({
+      data: {
+        tenantId: link.tenantId,
+        eventType: EVENT.LINK_OPENED,
+        trackingLinkId: link.id,
+        campaignId: link.campaignId,
+        contactId: link.contactId,
+        flowId: link.flowId,
+        metadata: JSON.stringify({ firstOpen: !link.firstOpenedAt }),
+      },
+    }),
   ]);
 
   const utm: Record<string, string> = {};

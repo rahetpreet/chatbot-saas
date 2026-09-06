@@ -46,6 +46,14 @@ export interface StepOutput {
   updatedCollectedData: Record<string, any>;
   currentNodeId: string | null;
   error?: string;
+  /**
+   * Set when this step consulted the AI answering layer.
+   *
+   * Reported back to the caller rather than recorded here, so the engine stays
+   * a pure function of its inputs and every analytics write stays inside the
+   * one transaction that also stores the messages.
+   */
+  ai?: { requested: boolean; answered: boolean; handedOver: boolean };
 }
 
 export class FlowEngine {
@@ -113,6 +121,7 @@ export class FlowEngine {
     const collected = { ...state.collectedData };
     let currentStatus = state.sessionStatus;
     let currNode = state.currentNodeId ? this.nodes.get(state.currentNodeId) || null : null;
+    let aiUsage: StepOutput["ai"];
 
     // If starting a fresh session without a currentNodeId
     if (!currNode) {
@@ -211,6 +220,7 @@ export class FlowEngine {
         collected[key] = fileData;
         currNode = this.getNextNode(currNode.id);
       } else if (nodeType === "ai_fallback") {
+        aiUsage = { requested: true, answered: false, handedOver: false };
         // Answered strictly from the workspace's own knowledge base. A model
         // asked a question its documents do not cover will invent a plausible
         // answer, and a confident wrong answer about price or availability is
@@ -224,8 +234,10 @@ export class FlowEngine {
         });
 
         if (answer.answered) {
+          aiUsage = { requested: true, answered: true, handedOver: false };
           botMessages.push({ text: this.interpolate(answer.content, collected) });
         } else {
+          aiUsage = { requested: true, answered: false, handedOver: true };
           // Out of scope: say so plainly and put a person on it.
           botMessages.push({
             text: this.interpolate(
@@ -243,6 +255,7 @@ export class FlowEngine {
           currNode = next;
         } else {
           return {
+            ai: aiUsage,
             botMessages,
             interactiveNode: currNode,
             sessionStatus: currentStatus,
@@ -351,6 +364,7 @@ export class FlowEngine {
           text: this.interpolate(currNode.data.handoverMessage || FlowEngine.HANDOVER_MESSAGE, collected),
         });
         return {
+          ai: aiUsage,
           botMessages,
           interactiveNode: currNode,
           sessionStatus: currentStatus,
@@ -365,6 +379,7 @@ export class FlowEngine {
           });
         }
         return {
+          ai: aiUsage,
           botMessages,
           interactiveNode: null,
           sessionStatus: currentStatus,
@@ -404,6 +419,7 @@ export class FlowEngine {
         }
 
         return {
+          ai: aiUsage,
           botMessages,
           interactiveNode: currNode,
           sessionStatus: currentStatus,
@@ -417,6 +433,7 @@ export class FlowEngine {
     }
 
     return {
+      ai: aiUsage,
       botMessages,
       interactiveNode: currNode,
       sessionStatus: currentStatus,

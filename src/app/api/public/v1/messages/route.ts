@@ -7,7 +7,27 @@ import { persistCapturedConversationData } from "@/lib/services/conversation/cap
 import { assertUsageAvailable, recordUsage } from "@/lib/services/subscription/planLimits";
 import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPublicCors } from "@/lib/services/public/cors";
 import { readTenantAiConfig } from "@/lib/security/aiSettings";
+import {
+  EVENT,
+  recordEventsTx,
+  nodeLabel,
+  nodeKind,
+  type EventInput,
+} from "@/lib/services/analytics/events";
 
+type PublishedNode = { id?: unknown; type?: string; data?: { label?: string; nodeType?: string } };
+
+/** Looks up a node in the published graph so events can carry its real name. */
+function findNode(nodes: PublishedNode[], id: string | null): PublishedNode | null {
+  if (!id || !Array.isArray(nodes)) return null;
+  return nodes.find((node) => node?.id === id) ?? null;
+}
+
+/** Node kinds that ask the visitor for something, and so can be abandoned. */
+function isInputNode(node: PublishedNode | null): boolean {
+  const kind = (node?.data?.nodeType || node?.type || "").toLowerCase();
+  return kind.includes("input") || kind.includes("form") || kind.includes("attachment");
+}
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -40,7 +60,108 @@ export async function POST(req: NextRequest) {
       if (step.botMessages.length) await tx.message.createMany({ data: step.botMessages.map((message) => ({ conversationId, senderType: "BOT", content: message.text, nodeId: step.currentNodeId || null, attachments: message.mediaUrl ? JSON.stringify([{ url: message.mediaUrl, type: message.mediaType }]) : null })) });
       await tx.conversation.update({ where: { id: conversationId }, data: { currentNodeId: step.currentNodeId, collectedData: JSON.stringify(step.updatedCollectedData), sessionStatus: step.sessionStatus, lastActiveAt: new Date(), closedAt: step.sessionStatus === "RESOLVED" ? new Date() : null } });
       await persistCapturedConversationData(tx, conversation.tenantId, conversationId, step.updatedCollectedData);
-      await tx.analyticsEvent.create({ data: { tenantId: conversation.tenantId, flowId: conversation.flowId, conversationId, eventType: "NODE_SUBMIT", nodeId: conversation.currentNodeId, metadata: JSON.stringify({ type }) } });
+      // One turn of the chat produces several distinct facts, and the reports
+      // need each of them separately: the step that was just answered, how it
+      // was answered, and the step the visitor moved on to. Recording a single
+      // generic "submit" made drop-off and option analysis impossible.
+      const answered = findNode(nodes, conversation.currentNodeId);
+      const arrived = step.interactiveNode ?? findNode(nodes, step.currentNodeId);
+      const dimensions = {
+        tenantId: conversation.tenantId,
+        flowId: conversation.flowId,
+        flowVersion: conversation.flowVersion,
+        conversationId,
+        visitorId: conversation.visitorId,
+        campaignId: conversation.campaignId,
+        trackingLinkId: conversation.trackingLinkId,
+      };
+
+      const events: EventInput[] = [];
+
+      if (conversation.currentNodeId) {
+        events.push({
+          ...dimensions,
+          eventType: EVENT.NODE_COMPLETED,
+          nodeId: conversation.currentNodeId,
+          nodeType: nodeKind(answered),
+          optionLabel: nodeLabel(answered),
+        });
+        events.push({
+          ...dimensions,
+          eventType:
+            type === "button_click"
+              ? EVENT.BUTTON_CLICKED
+              : type === "attachment_upload"
+                ? EVENT.FILE_UPLOADED
+                : EVENT.INPUT_SUBMITTED,
+          nodeId: conversation.currentNodeId,
+          nodeType: nodeKind(answered),
+          // For a button this is the option the visitor chose, which is what
+          // the option-distribution report groups by. For an input it is the
+          // question's own label -- never the answer, which would put personal
+          // data into analytics.
+          optionLabel:
+            type === "button_click"
+              ? typeof userInput.label === "string"
+                ? userInput.label
+                : typeof value === "string"
+                  ? value
+                  : null
+              : nodeLabel(answered),
+          metadata: { type },
+        });
+      }
+
+      if (step.currentNodeId) {
+        events.push({
+          ...dimensions,
+          eventType: EVENT.NODE_ENTERED,
+          nodeId: step.currentNodeId,
+          nodeType: nodeKind(arrived),
+          optionLabel: nodeLabel(arrived),
+        });
+
+        // An input the visitor has been shown but not yet answered is what
+        // makes per-field abandonment measurable.
+        if (isInputNode(arrived)) {
+          events.push({
+            ...dimensions,
+            eventType: EVENT.INPUT_STARTED,
+            nodeId: step.currentNodeId,
+            nodeType: nodeKind(arrived),
+            optionLabel: nodeLabel(arrived),
+          });
+
+          const alreadyStarted = await tx.analyticsEvent.count({
+            where: { conversationId, eventType: EVENT.FORM_STARTED },
+          });
+          if (!alreadyStarted) {
+            events.push({ ...dimensions, eventType: EVENT.FORM_STARTED, nodeId: step.currentNodeId });
+          }
+        }
+      }
+
+      // AI usage, reported by the engine rather than guessed at from the
+      // reply text. A handover that followed an AI question is recorded as a
+      // fallback as well as a handoff, since those answer different questions:
+      // how often AI is consulted, and how often it declines to guess.
+      if (step.ai?.requested) {
+        events.push({ ...dimensions, eventType: EVENT.AI_REQUEST, nodeId: conversation.currentNodeId });
+        events.push({
+          ...dimensions,
+          eventType: step.ai.answered ? EVENT.AI_RESPONSE : EVENT.AI_FALLBACK,
+          nodeId: conversation.currentNodeId,
+        });
+      }
+
+      if (step.sessionStatus === "HANDOVER" && conversation.sessionStatus !== "HANDOVER") {
+        events.push({ ...dimensions, eventType: EVENT.HUMAN_HANDOFF, nodeId: step.currentNodeId });
+      }
+      if (step.sessionStatus === "RESOLVED") {
+        events.push({ ...dimensions, eventType: EVENT.CONVERSATION_COMPLETED, nodeId: step.currentNodeId });
+      }
+
+      await recordEventsTx(tx, events);
       const botMessages = await tx.message.findMany({ where: { conversationId, timestamp: { gte: visitorMessage.timestamp } }, orderBy: { timestamp: "asc" } });
       return { visitorMessage, botMessages: botMessages.filter((message) => message.senderType === "BOT") };
     });

@@ -8,6 +8,7 @@ import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPu
 import { readTenantAiConfig } from "@/lib/security/aiSettings";
 import { recordTrackingConversation } from "@/lib/services/tracking";
 import { isSlugAllowedOnHost } from "@/lib/services/tenant/hostGuard";
+import { EVENT, recordEventsTx, nodeLabel, nodeKind } from "@/lib/services/analytics/events";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -167,6 +168,9 @@ export async function POST(req: NextRequest) {
         data: {
           tenantId: tenant.id,
           flowId: flow.id,
+          // Frozen so version-over-version reporting stays honest after the
+          // flow is edited and republished.
+          flowVersion: flow.version,
           campaignContactId,
           campaignId,
           trackingLinkId,
@@ -196,14 +200,35 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await tx.analyticsEvent.create({
-        data: {
-          tenantId: tenant.id,
-          flowId: flow.id,
-          conversationId: created.id,
-          eventType: "SESSION_START",
-        },
-      });
+      // The opening steps of the funnel, written with the conversation itself
+      // so a chat can never exist without the events that explain where it
+      // came from. Dimensions are copied onto each row so every report is a
+      // single-table query rather than a chain of joins.
+      const dimensions = {
+        tenantId: tenant.id,
+        flowId: flow.id,
+        flowVersion: flow.version,
+        conversationId: created.id,
+        visitorId,
+        campaignId,
+        trackingLinkId,
+      };
+      await recordEventsTx(tx, [
+        { ...dimensions, eventType: EVENT.CHATBOT_OPENED },
+        { ...dimensions, eventType: EVENT.SESSION_STARTED },
+        { ...dimensions, eventType: EVENT.CONVERSATION_STARTED },
+        ...(step.currentNodeId
+          ? [
+              {
+                ...dimensions,
+                eventType: EVENT.NODE_ENTERED,
+                nodeId: step.currentNodeId,
+                nodeType: nodeKind(step.interactiveNode),
+                optionLabel: nodeLabel(step.interactiveNode),
+              },
+            ]
+          : []),
+      ]);
 
       return created;
     });

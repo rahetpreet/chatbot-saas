@@ -45,6 +45,23 @@ export const FUNNEL_STEPS: Array<{ key: string; label: string; event: EventType 
   { key: "leads", label: "Lead created", event: EVENT.LEAD_CREATED },
 ];
 
+/**
+ * The human-readable name of a flow node.
+ *
+ * Reports show these labels to clients, so they are captured at the moment the
+ * event happens rather than looked up later: renaming a node next month must
+ * not silently retitle last month's chart.
+ */
+export function nodeLabel(node: { data?: { label?: string } } | null | undefined): string | null {
+  const label = node?.data?.label;
+  return typeof label === "string" && label.trim() ? label.trim() : null;
+}
+
+/** The node's kind ("buttons", "input", …), used to group like with like. */
+export function nodeKind(node: { data?: { nodeType?: string }; type?: string } | null | undefined): string | null {
+  return node?.data?.nodeType || node?.type || null;
+}
+
 export interface EventInput {
   tenantId: string;
   eventType: EventType;
