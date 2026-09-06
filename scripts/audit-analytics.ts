@@ -245,6 +245,55 @@ async function main() {
     );
     check("journey: ends at the lead", events.some((e: any) => e.event === "LEAD_CREATED"), "");
 
+
+    // ---- campaign filter ---------------------------------------------------
+    const filtered = await get(`/api/client/analytics/overview?preset=last30&campaignId=${campaign.id}`);
+    expect("campaign filter narrows to that campaign", filtered.json?.data?.metrics?.conversationsStarted, 1);
+
+    const otherCampaign = await prisma.campaign.create({
+      data: { tenantId: tenant.id, name: "Empty campaign", slug: `empty-${stamp}`, flowId: flow.id },
+    });
+    const empty = await get(`/api/client/analytics/overview?preset=last30&campaignId=${otherCampaign.id}`);
+    expect("campaign filter excludes other campaigns", empty.json?.data?.metrics?.conversationsStarted, 0);
+    expect("campaign filter excludes their leads", empty.json?.data?.metrics?.totalLeads, 0);
+
+    const flowFiltered = await get(`/api/client/analytics/flow?preset=last30&campaignId=${otherCampaign.id}`);
+    check(
+      "campaign filter applies to flow analysis",
+      (flowFiltered.json?.data?.nodes || []).length === 0,
+      `${(flowFiltered.json?.data?.nodes || []).length} nodes`,
+    );
+
+    // ---- campaign delete ---------------------------------------------------
+    const deleteRes = await fetch(`${BASE}/api/client/campaigns/${otherCampaign.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    });
+    check("campaign deletes", deleteRes.ok, `${deleteRes.status}`);
+
+    const stillThere = await prisma.campaign.findUnique({
+      where: { id: otherCampaign.id },
+      select: { deletedAt: true },
+    });
+    check("delete archives rather than destroys", Boolean(stillThere?.deletedAt), "deletedAt set");
+
+    const afterDelete = await get("/api/client/analytics/campaigns?preset=last30");
+    const names = (afterDelete.json?.data?.campaigns || []).map((c: any) => c.name);
+    check("deleted campaign leaves the list", !names.includes("Empty campaign"), names.join(", ") || "empty");
+
+    // The claim worth proving: deleting a campaign must not rewrite history.
+    const totalsAfter = await get("/api/client/analytics/overview?preset=last30");
+    expect("deleting a campaign does not change past leads", totalsAfter.json?.data?.metrics?.totalLeads, 1);
+    expect(
+      "deleting a campaign does not change past conversations",
+      totalsAfter.json?.data?.metrics?.conversationsStarted,
+      1,
+    );
+
+    const liveCampaigns = await get("/api/client/analytics/campaigns?preset=last30");
+    const original = (liveCampaigns.json?.data?.campaigns || []).find((c: any) => c.campaignId === campaign.id);
+    expect("the surviving campaign keeps its leads", original?.leads, 1);
+
     // ---- reports -----------------------------------------------------------
     const generated = await fetch(`${BASE}/api/client/reports?preset=last30`, {
       method: "POST",
