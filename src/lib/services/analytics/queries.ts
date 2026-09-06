@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { EVENT, FUNNEL_STEPS } from "./events";
-import { DateRange, rate } from "./range";
+import { DateRange, rate, runSequential } from "./range";
 
 /**
  * Every analytics read in the product.
@@ -91,61 +91,81 @@ export async function overviewMetrics(
     ...(filters.flowVersion ? { flowVersion: filters.flowVersion } : {}),
   };
 
-  const [
+  // Sequential, not Promise.all.
+  //
+  // The connection pool holds a single connection, so issuing these at once
+  // cannot make them run in parallel — it only queues them, and anything still
+  // waiting after ten seconds fails. The dashboard returned an error instead of
+  // a number for exactly this reason.
+  // One grouped query rather than three counts for total, resolved and
+  // abandoned. Same answer, a third of the round trips to Singapore. Kept
+  // outside runSequential because passing a Prisma groupBy through a generic
+  // widens its return type.
+  const byStatus = await prisma.conversation.groupBy({
+    by: ["sessionStatus"],
+    where: convWhere,
+    _count: { _all: true },
+  });
+
+  const {
     counts,
     uniqueVisitors,
     uniqueLinkRows,
-    conversations,
-    completed,
-    abandoned,
     messages,
     leads,
     contacts,
     linksGenerated,
     returning,
     durations,
-  ] = await Promise.all([
-    countByType(tenantId, range, filters),
-    distinctVisitors(tenantId, range, filters),
-    prisma.analyticsEvent.findMany({
-      where: {
-        ...eventWhere(tenantId, range, filters),
-        eventType: EVENT.LINK_OPENED,
-        trackingLinkId: { not: null },
-      },
-      select: { trackingLinkId: true },
-      distinct: ["trackingLinkId"],
-    }),
-    prisma.conversation.count({ where: convWhere }),
-    prisma.conversation.count({ where: { ...convWhere, sessionStatus: "RESOLVED" } }),
-    prisma.conversation.count({ where: { ...convWhere, sessionStatus: "ABANDONED" } }),
-    prisma.message.count({ where: { conversation: { tenantId }, timestamp: inRange } }),
-    prisma.lead.count({
-      where: {
-        tenantId,
-        deletedAt: null,
-        createdAt: inRange,
-        ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
-      },
-    }),
-    prisma.contact.count({ where: { tenantId, deletedAt: null, createdAt: inRange } }),
-    prisma.trackingLink.count({
-      where: {
-        tenantId,
-        deletedAt: null,
-        createdAt: inRange,
-        ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
-      },
-    }),
-    prisma.visitor.count({ where: { tenantId, sessionCount: { gt: 1 }, lastSeenAt: inRange } }),
+  } = await runSequential({
+    counts: () => countByType(tenantId, range, filters),
+    uniqueVisitors: () => distinctVisitors(tenantId, range, filters),
+    uniqueLinkRows: () =>
+      prisma.analyticsEvent.findMany({
+        where: {
+          ...eventWhere(tenantId, range, filters),
+          eventType: EVENT.LINK_OPENED,
+          trackingLinkId: { not: null },
+        },
+        select: { trackingLinkId: true },
+        distinct: ["trackingLinkId"],
+      }),
+    messages: () => prisma.message.count({ where: { conversation: { tenantId }, timestamp: inRange } }),
+    leads: () =>
+      prisma.lead.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: inRange,
+          ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+        },
+      }),
+    contacts: () => prisma.contact.count({ where: { tenantId, deletedAt: null, createdAt: inRange } }),
+    linksGenerated: () =>
+      prisma.trackingLink.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: inRange,
+          ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+        },
+      }),
+    returning: () => prisma.visitor.count({ where: { tenantId, sessionCount: { gt: 1 }, lastSeenAt: inRange } }),
     // Duration comes from the conversation's own timestamps rather than from
     // events, so it stays correct for chats that predate event tracking.
-    prisma.conversation.findMany({
-      where: convWhere,
-      select: { startedAt: true, lastActiveAt: true, closedAt: true },
-      take: 5000,
-    }),
-  ]);
+    durations: () =>
+      prisma.conversation.findMany({
+        where: convWhere,
+        select: { startedAt: true, lastActiveAt: true, closedAt: true },
+        take: 5000,
+      }),
+  });
+
+  const statusCount = (status: string) =>
+    byStatus.find((row) => row.sessionStatus === status)?._count._all || 0;
+  const conversations = byStatus.reduce((sum, row) => sum + row._count._all, 0);
+  const completed = statusCount("RESOLVED");
+  const abandoned = statusCount("ABANDONED");
 
   const totalSeconds = durations.reduce((sum, c) => {
     const end = c.closedAt ?? c.lastActiveAt;
@@ -180,7 +200,7 @@ export interface FunnelStep {
   label: string;
   count: number;
   /** Conversion from the step above, which is what identifies the leak. */
-  stepRate: number;
+  stepRate: number | null;
   /** Conversion from the top of the funnel. */
   overallRate: number;
   dropOff: number;
@@ -198,22 +218,52 @@ export async function funnelMetrics(
   range: DateRange,
   filters: AnalyticsFilters = {},
 ): Promise<{ steps: FunnelStep[] }> {
-  const counts = await Promise.all(
-    FUNNEL_STEPS.map(async (step) => {
-      const where = { ...eventWhere(tenantId, range, filters), eventType: step.event };
-      // A link is opened before any conversation exists, so it is counted on
-      // its own terms; every later step counts distinct conversations.
-      if (step.event === EVENT.LINK_OPENED) {
-        return prisma.analyticsEvent.count({ where });
-      }
-      const rows = await prisma.analyticsEvent.findMany({
-        where: { ...where, conversationId: { not: null } },
-        select: { conversationId: true },
-        distinct: ["conversationId"],
-      });
-      return rows.length;
-    }),
-  );
+  // Two queries for the whole funnel, not one per step.
+  //
+  // Grouping by (eventType, conversationId) gives one row per conversation per
+  // step, so counting those rows per step IS the distinct-conversation count —
+  // computed in the database rather than by pulling every event across the
+  // wire, and on a single connection seven round trips to Singapore was the
+  // slowest thing on the page.
+  const { linkOpens, pairs } = await runSequential({
+    // A link is opened before any conversation exists, so it is counted on its
+    // own terms rather than as distinct conversations.
+    linkOpens: () =>
+      prisma.analyticsEvent.count({
+        where: { ...eventWhere(tenantId, range, filters), eventType: EVENT.LINK_OPENED },
+      }),
+    pairs: () =>
+      prisma.analyticsEvent.groupBy({
+        by: ["eventType", "conversationId"],
+        where: {
+          ...eventWhere(tenantId, range, filters),
+            eventType: {
+            in: FUNNEL_STEPS.flatMap((step) => step.events).filter((e) => e !== EVENT.LINK_OPENED),
+          },
+          conversationId: { not: null },
+        },
+        _count: { _all: true },
+      }),
+  });
+
+  // A step reachable by several events counts each conversation once, not
+  // once per event kind — a visitor who clicks a button AND types an answer is
+  // still one person who answered the first question.
+  const conversationsByType = new Map<string, Set<string>>();
+  for (const row of pairs) {
+    if (!row.conversationId) continue;
+    if (!conversationsByType.has(row.eventType)) conversationsByType.set(row.eventType, new Set());
+    conversationsByType.get(row.eventType)!.add(row.conversationId);
+  }
+
+  const counts = FUNNEL_STEPS.map((step) => {
+    if (step.events.includes(EVENT.LINK_OPENED)) return linkOpens;
+    const reached = new Set<string>();
+    for (const event of step.events) {
+      for (const id of conversationsByType.get(event) ?? []) reached.add(id);
+    }
+    return reached.size;
+  });
 
   const top = counts[0] || counts.find((c) => c > 0) || 0;
   const steps: FunnelStep[] = FUNNEL_STEPS.map((step, i) => {
@@ -223,7 +273,10 @@ export async function funnelMetrics(
       key: step.key,
       label: step.label,
       count,
-      stepRate: i === 0 ? 100 : rate(count, previous),
+      // Null, not zero, when there is nothing above to convert from. A funnel
+      // whose first step is unused (no campaign links) otherwise reported the
+      // next step as "0% of previous", which reads as total failure.
+      stepRate: i === 0 ? 100 : previous > 0 ? rate(count, previous) : null,
       overallRate: rate(count, top),
       dropOff: i === 0 ? 0 : Math.max(0, previous - count),
     };
@@ -397,4 +450,51 @@ export async function optionAnalytics(
       };
     })
     .sort((a, b) => b.clicks - a.clicks);
+}
+
+export interface ComparisonCounts {
+  conversationsStarted: number;
+  totalLeads: number;
+  uniqueVisitors: number;
+  totalMessages: number;
+  conversionRate: number;
+}
+
+/**
+ * The previous period, cheaply.
+ *
+ * The dashboard only needs the handful of figures its trend arrows point at.
+ * Running the full `overviewMetrics` for the comparison doubled the work of the
+ * whole endpoint — twelve extra queries on a single connection — to produce
+ * four percentages.
+ */
+export async function comparisonCounts(
+  tenantId: string,
+  range: DateRange,
+  filters: AnalyticsFilters = {},
+): Promise<ComparisonCounts> {
+  const inRange = { gte: range.start, lte: range.end };
+
+  const { conversations, leads, messages, visitors } = await runSequential({
+    conversations: () =>
+      prisma.conversation.count({
+        where: {
+          tenantId,
+          startedAt: inRange,
+          ...(filters.flowId ? { flowId: filters.flowId } : {}),
+          ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+        },
+      }),
+    leads: () => prisma.lead.count({ where: { tenantId, deletedAt: null, createdAt: inRange } }),
+    messages: () => prisma.message.count({ where: { conversation: { tenantId }, timestamp: inRange } }),
+    visitors: () => distinctVisitors(tenantId, range, filters),
+  });
+
+  return {
+    conversationsStarted: conversations,
+    totalLeads: leads,
+    uniqueVisitors: visitors,
+    totalMessages: messages,
+    conversionRate: rate(leads, conversations),
+  };
 }

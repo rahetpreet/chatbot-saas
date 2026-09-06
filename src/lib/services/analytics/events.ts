@@ -35,14 +35,32 @@ export const EVENT = {
 export type EventType = (typeof EVENT)[keyof typeof EVENT];
 
 /** The ordered funnel the Overview screen draws. */
-export const FUNNEL_STEPS: Array<{ key: string; label: string; event: EventType }> = [
-  { key: "linksOpened", label: "Links opened", event: EVENT.LINK_OPENED },
-  { key: "chatbotOpened", label: "Chatbot opened", event: EVENT.CHATBOT_OPENED },
-  { key: "conversationsStarted", label: "Conversation started", event: EVENT.CONVERSATION_STARTED },
-  { key: "firstAnswer", label: "First question answered", event: EVENT.INPUT_SUBMITTED },
-  { key: "formsStarted", label: "Lead form started", event: EVENT.FORM_STARTED },
-  { key: "formsCompleted", label: "Lead form completed", event: EVENT.FORM_COMPLETED },
-  { key: "leads", label: "Lead created", event: EVENT.LEAD_CREATED },
+/**
+ * The ordered funnel the Overview screen draws.
+ *
+ * Two things this list has to get right, both learned the hard way:
+ *
+ *  - Steps must be in the order they actually occur. "First question answered"
+ *    originally counted only INPUT_SUBMITTED and sat above "Lead form started",
+ *    but a visitor reaches the form before submitting anything in it — so the
+ *    form step came out larger than the one above it and the funnel reported
+ *    111% conversion, which is impossible and reads as a broken product.
+ *  - A step can be reached by more than one event. Answering the first question
+ *    is a button click in most flows and a typed answer in others; counting
+ *    only one of them undercounts every flow of the other kind.
+ */
+export const FUNNEL_STEPS: Array<{ key: string; label: string; events: EventType[] }> = [
+  { key: "linksOpened", label: "Links opened", events: [EVENT.LINK_OPENED] },
+  { key: "chatbotOpened", label: "Chatbot opened", events: [EVENT.CHATBOT_OPENED] },
+  { key: "conversationsStarted", label: "Conversation started", events: [EVENT.CONVERSATION_STARTED] },
+  {
+    key: "firstAnswer",
+    label: "First question answered",
+    events: [EVENT.BUTTON_CLICKED, EVENT.INPUT_SUBMITTED],
+  },
+  { key: "formsStarted", label: "Lead form started", events: [EVENT.FORM_STARTED] },
+  { key: "formsCompleted", label: "Lead form completed", events: [EVENT.FORM_COMPLETED] },
+  { key: "leads", label: "Lead created", events: [EVENT.LEAD_CREATED] },
 ];
 
 /**

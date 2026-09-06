@@ -149,3 +149,25 @@ export function eachDay(range: DateRange): Date[] {
 
 export const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Runs queries one at a time.
+ *
+ * The database URL sets `connection_limit=1`, which is the right setting for
+ * serverless behind PgBouncer: every concurrently running function instance
+ * holds one connection instead of a poolful. The consequence is that
+ * `Promise.all` over many queries buys nothing — they cannot actually run in
+ * parallel — while the ones that queue past the 10-second pool timeout fail
+ * outright.
+ *
+ * The dashboard hit exactly that: forty-two queries issued at once, and the
+ * page returned an error rather than a number. Sequential execution takes the
+ * same wall-clock time on a single connection, without the contention.
+ */
+export async function runSequential<T extends Record<string, () => Promise<any>>>(
+  tasks: T,
+): Promise<{ [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  const out: any = {};
+  for (const [key, task] of Object.entries(tasks)) out[key] = await task();
+  return out;
+}

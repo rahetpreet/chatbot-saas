@@ -151,7 +151,7 @@ export interface FunnelStepView {
   key: string;
   label: string;
   count: number;
-  stepRate: number;
+  stepRate: number | null;
   overallRate: number;
   dropOff: number;
 }
@@ -177,7 +177,9 @@ export function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
             </span>
             <span className="shrink-0 text-xs text-slate-500">
               <span className="font-bold text-slate-900">{step.count.toLocaleString()}</span>
-              {index > 0 && <span className="ml-1.5">{step.stepRate.toFixed(1)}% of previous</span>}
+              {index > 0 && step.stepRate !== null && (
+                <span className="ml-1.5">{step.stepRate.toFixed(1)}% of previous</span>
+              )}
             </span>
           </div>
           <div className="h-6 w-full overflow-hidden rounded-md bg-slate-100">

@@ -3,7 +3,7 @@ import { analyticsContext, analyticsSuccess, analyticsError } from "@/lib/servic
 import { overviewMetrics, funnelMetrics, nodeAnalytics, optionAnalytics } from "@/lib/services/analytics/queries";
 import { campaignAnalytics, formFieldAnalytics, deviceAnalytics } from "@/lib/services/analytics/breakdowns";
 import { buildInsights, buildRecommendations } from "@/lib/services/analytics/insights";
-import { percentChange } from "@/lib/services/analytics/range";
+import { percentChange, runSequential } from "@/lib/services/analytics/range";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,15 +20,17 @@ export async function GET(req: NextRequest) {
     const context = await analyticsContext(req);
     const { tenantId, range, previous, compare, filters } = context;
 
-    const [metrics, funnel, nodes, options, campaigns, formFields, devices] = await Promise.all([
-      overviewMetrics(tenantId, range, filters),
-      funnelMetrics(tenantId, range, filters),
-      nodeAnalytics(tenantId, range, filters),
-      optionAnalytics(tenantId, range, filters),
-      campaignAnalytics(tenantId, range),
-      formFieldAnalytics(tenantId, range, filters),
-      deviceAnalytics(tenantId, range),
-    ]);
+    // Sequential: the connection pool holds one connection, so issuing these
+    // together only queues them and risks the pool timeout. See runSequential.
+    const { metrics, funnel, nodes, options, campaigns, formFields, devices } = await runSequential({
+      metrics: () => overviewMetrics(tenantId, range, filters),
+      funnel: () => funnelMetrics(tenantId, range, filters),
+      nodes: () => nodeAnalytics(tenantId, range, filters),
+      options: () => optionAnalytics(tenantId, range, filters),
+      campaigns: () => campaignAnalytics(tenantId, range),
+      formFields: () => formFieldAnalytics(tenantId, range, filters),
+      devices: () => deviceAnalytics(tenantId, range),
+    });
 
     // Only queried when asked for: it doubles the work of this endpoint, and
     // most page loads do not need it.
