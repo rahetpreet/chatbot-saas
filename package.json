@@ -13,7 +13,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate",
-    "test:isolation": "tsx --test tests/tenant-isolation.test.ts"
+    "test:isolation": "tsx --test tests/tenant-isolation.test.ts",
+    "audit:analytics": "tsx scripts/audit-analytics.ts",
+    "audit:isolation": "tsx scripts/audit-isolation.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
