@@ -63,6 +63,8 @@ interface ConversationLike {
   visitorId?: string | null;
   collectedData?: string | null;
   campaignContact?: { name?: string | null; email?: string | null; phone?: string | null } | null;
+  /** The lead this conversation produced, when it produced one. */
+  leads?: Array<{ name?: string | null; email?: string | null; phone?: string | null }> | null;
 }
 
 /**
@@ -80,11 +82,18 @@ function anonymousLabel(visitorId: string | null | undefined): string {
 export function describeVisitor(conversation: ConversationLike): ConversationIdentity {
   const collected = parse(conversation.collectedData);
 
-  // A campaign contact is the strongest signal: someone deliberately imported
-  // that person. What the visitor typed themselves comes next.
-  const name = conversation.campaignContact?.name?.trim() || pick(collected, NAME_KEYS);
-  const email = conversation.campaignContact?.email?.trim() || pick(collected, EMAIL_KEYS);
-  const phone = conversation.campaignContact?.phone?.trim() || pick(collected, PHONE_KEYS);
+  // Ordered by how much the details are worth trusting:
+  //
+  //  1. A campaign contact — somebody deliberately imported that person.
+  //  2. The lead this chat produced — they completed a form, which is the most
+  //     considered thing a visitor does. A lead submitted straight to the API
+  //     leaves collectedData empty, so without this a named customer still
+  //     showed in the inbox as an anonymous visitor.
+  //  3. What they typed into the flow as they went.
+  const lead = conversation.leads?.[0];
+  const name = conversation.campaignContact?.name?.trim() || lead?.name?.trim() || pick(collected, NAME_KEYS);
+  const email = conversation.campaignContact?.email?.trim() || lead?.email?.trim() || pick(collected, EMAIL_KEYS);
+  const phone = conversation.campaignContact?.phone?.trim() || lead?.phone?.trim() || pick(collected, PHONE_KEYS);
 
   const title = name || email || phone || anonymousLabel(conversation.visitorId);
   const anonymous = !name && !email && !phone;

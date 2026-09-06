@@ -583,3 +583,37 @@ test("an anonymous visitor still gets a readable, stable label", () => {
   assert.equal(describeVisitor({ visitorId: "", collectedData: "not json" }).title, "Anonymous visitor");
   assert.equal(describeVisitor({ visitorId: null, collectedData: "[]" }).title, "Anonymous visitor");
 });
+
+test("a captured lead names the conversation in the inbox", () => {
+  // A lead form submitted straight to the API leaves collectedData empty, so
+  // without consulting the lead a named customer still showed as an anonymous
+  // visitor in the inbox — which is exactly the case the onboarding audit hit.
+  const fromLead = describeVisitor({
+    visitorId: "onboard-visitor-1788720220677",
+    collectedData: "{}",
+    leads: [{ name: "Priya Menon", email: "priya@example.com" }],
+  });
+  assert.equal(fromLead.title, "Priya Menon");
+  assert.equal(fromLead.anonymous, false);
+
+  // An imported campaign contact still outranks the lead.
+  const imported = describeVisitor({
+    visitorId: "v1",
+    campaignContact: { name: "Imported Name" },
+    leads: [{ name: "Lead Name" }],
+  });
+  assert.equal(imported.title, "Imported Name");
+
+  // And a lead outranks what was typed mid-flow, since completing a form is
+  // the more considered act.
+  const overTyped = describeVisitor({
+    visitorId: "v1",
+    collectedData: JSON.stringify({ full_name: "Half Typed" }),
+    leads: [{ name: "Completed Form" }],
+  });
+  assert.equal(overTyped.title, "Completed Form");
+
+  // No lead is not a crash.
+  assert.equal(describeVisitor({ visitorId: "vis_abcd1234", leads: [] }).title, "Visitor 1234");
+  assert.equal(describeVisitor({ visitorId: "vis_abcd1234", leads: null }).title, "Visitor 1234");
+});

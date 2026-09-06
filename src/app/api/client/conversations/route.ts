@@ -45,6 +45,16 @@ export async function GET(req: NextRequest) {
               orderBy: { timestamp: "desc" },
               take: 1, // Last message for preview
             },
+            // A conversation that produced a lead should show that person's
+            // name in the inbox, even when the flow captured nothing into
+            // collectedData -- a lead form submitted straight to the API is
+            // still a named human.
+            leads: {
+              where: { deletedAt: null },
+              select: { name: true, email: true, phone: true },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
             _count: {
               select: { messages: true },
             },
