@@ -61,6 +61,11 @@ model Tenant {
   notifications    Notification[]
   shortLinks       ShortLink[]
 
+  reportSnapshots  ReportSnapshot[]
+
+  dailyAnalytics   DailyAnalytics[]
+
+
   @@index([slug])
   @@index([status])
   @@index([deletedAt])
@@ -313,6 +318,10 @@ model Conversation {
   id                     String    @id @default(cuid())
   tenantId               String
   flowId                 String?
+  /// Version of the flow that served this conversation, captured at start.
+  /// Without it, version-over-version comparison silently reinterprets old
+  /// conversations through the current flow and every number becomes a guess.
+  flowVersion            Int?
   campaignContactId      String?
   campaignId             String?
   trackingLinkId         String?
@@ -429,15 +438,36 @@ model AnalyticsEvent {
   id             String   @id @default(cuid())
   tenantId       String
   flowId         String?
+  /// The published flow version this event happened on. Reports must never
+  /// re-explain old conversations using today's flow, so the version is frozen
+  /// onto the event rather than read back from the flow.
+  flowVersion    Int?
   conversationId String?
-  eventType      String // SESSION_START, NODE_VIEW, NODE_SUBMIT, BUTTON_CLICK, CAMPAIGN_OPEN, CONVERSION, HANDOVER_REQUEST
+  /// Anonymous visitor id, copied onto the event rather than joined. Visitor
+  /// counts are the most-run query in this module and a join per event row
+  /// makes them cost far more than they are worth.
+  visitorId      String?
+  campaignId     String?
+  trackingLinkId String?
+  contactId      String?
+  leadId         String?
+  eventType      String
   nodeId         String?
-  metadata       String? // JSON string
+  nodeType       String?
+  /// The button or option text, so option distribution is a GROUP BY rather
+  /// than a JSON scan over every event's metadata.
+  optionLabel    String?
+  metadata       String?
   timestamp      DateTime @default(now())
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   flow         Flow?         @relation(fields: [flowId], references: [id], onDelete: SetNull)
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  // campaignId, trackingLinkId, contactId and leadId are deliberately plain
+  // columns with no foreign key. An event is a record that something happened;
+  // deleting a campaign must not rewrite history by nulling it out of last
+  // quarter's numbers.
 
   @@index([tenantId])
   @@index([eventType])
@@ -446,6 +476,14 @@ model AnalyticsEvent {
   @@index([tenantId, timestamp])
   @@index([conversationId])
   @@index([flowId])
+  // Every funnel and trend query is "this tenant, these event types, this date
+  // range", so that is the shape the main index has to serve.
+  @@index([tenantId, eventType, timestamp])
+  @@index([tenantId, flowId, nodeId])
+  @@index([tenantId, campaignId, timestamp])
+  @@index([tenantId, trackingLinkId])
+  @@index([tenantId, visitorId])
+  @@index([tenantId, leadId])
 }
 
 model AuditLog {
@@ -693,4 +731,66 @@ model ShortLink {
   @@index([tenantId])
   @@index([campaignId])
   @@index([code])
+}
+
+/// A frozen copy of a generated report.
+///
+/// A report emailed to a client in March must still say in June exactly what it
+/// said in March. Re-running the query would quietly restate history as data
+/// arrives late, conversations close, or leads change status, so the numbers are
+/// stored rather than recomputed.
+model ReportSnapshot {
+  id            String   @id @default(cuid())
+  tenantId      String
+  reportType    String
+  rangeStart    DateTime
+  rangeEnd      DateTime
+  /// JSON: the exact filters the user had applied when they generated it.
+  filters       String?
+  /// JSON: the computed metrics, verbatim.
+  metrics       String
+  /// JSON: the rule-based insights as they read at generation time.
+  insights      String?
+  generatedById String?
+  generatedAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, generatedAt])
+  @@index([tenantId, reportType])
+}
+
+/// Pre-aggregated daily counters, so opening a dashboard does not scan every
+/// event ever recorded.
+///
+/// `scope` is a string key ("tenant", "flow:<id>", "campaign:<id>") rather than
+/// nullable flowId/campaignId columns, because Postgres treats NULLs in a
+/// unique constraint as distinct — nullable dimensions would let duplicate
+/// rows accumulate for the same day and silently double every total.
+model DailyAnalytics {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  day                   DateTime
+  scope                 String   @default("tenant")
+  visitors              Int      @default(0)
+  uniqueVisitors        Int      @default(0)
+  chatbotOpens          Int      @default(0)
+  conversationsStarted  Int      @default(0)
+  conversationsComplete Int      @default(0)
+  messages              Int      @default(0)
+  formsStarted          Int      @default(0)
+  formsCompleted        Int      @default(0)
+  leads                 Int      @default(0)
+  linkOpens             Int      @default(0)
+  uniqueLinkOpens       Int      @default(0)
+  aiRequests            Int      @default(0)
+  handoffs              Int      @default(0)
+  computedAt            DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, day, scope])
+  @@index([tenantId, day])
+  @@index([tenantId, scope, day])
 }
