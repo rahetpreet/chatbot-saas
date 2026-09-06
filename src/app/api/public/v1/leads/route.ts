@@ -80,21 +80,36 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const lead = await tx.lead.create({
-        data: {
-          tenantId: conversation.tenantId,
-          conversationId: conversation.id,
-          contactId: contact.id,
-          campaignId: conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null,
-          name: cleanName,
-          email: normalizedEmail,
-          phone: cleanPhone,
-          contactInfo: JSON.stringify({ name: cleanName, email: normalizedEmail, phone: cleanPhone }),
-          collectedFields: JSON.stringify(customFields || {}),
-          status: "NEW",
-          score: 10,
-        },
+      // A conversation has at most one lead.
+      //
+      // Answering an email or phone step already creates one through
+      // persistCapturedConversationData, so creating another here produced two
+      // rows for the same person in the same chat — duplicates in the client's
+      // leads list, and a lead count that disagreed with the funnel.
+      const existing = await tx.lead.findFirst({
+        where: { tenantId: conversation.tenantId, conversationId: conversation.id, deletedAt: null },
+        select: { id: true },
       });
+
+      const details = {
+        contactId: contact.id,
+        campaignId: conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null,
+        name: cleanName,
+        email: normalizedEmail,
+        phone: cleanPhone,
+        contactInfo: JSON.stringify({ name: cleanName, email: normalizedEmail, phone: cleanPhone }),
+        collectedFields: JSON.stringify(customFields || {}),
+        score: 10,
+      };
+
+      const lead = existing
+        ? // Submitting the form is a deliberate act and its values are the
+          // better ones, so they replace whatever was captured mid-flow. The
+          // status is left alone: an agent may already have moved it on.
+          await tx.lead.update({ where: { id: existing.id }, data: details })
+        : await tx.lead.create({
+            data: { tenantId: conversation.tenantId, conversationId: conversation.id, status: "NEW", ...details },
+          });
 
       // The bottom two funnel steps. Written in the same transaction as the
       // lead, so a LEAD_CREATED event can never exist without the lead it
@@ -110,23 +125,31 @@ export async function POST(req: NextRequest) {
         contactId: contact.id,
         leadId: lead.id,
       };
+      // A resubmitted form is still a completed form, but it is not a second
+      // lead. Counting it twice would inflate conversion permanently, and
+      // conversion is the number this whole module is judged on.
+      const alreadyCounted = await tx.analyticsEvent.count({
+        where: { conversationId: conversation.id, eventType: EVENT.LEAD_CREATED },
+      });
       await recordEventsTx(tx, [
         { ...dimensions, eventType: EVENT.FORM_COMPLETED },
-        { ...dimensions, eventType: EVENT.LEAD_CREATED },
+        ...(alreadyCounted ? [] : [{ ...dimensions, eventType: EVENT.LEAD_CREATED }]),
       ]);
 
-      // Notify the workspace so a captured lead is not discovered only by
-      // someone happening to open the leads page.
-      await tx.notification.create({
-        data: {
-          tenantId: conversation.tenantId,
-          type: "LEAD_CREATED",
-          title: "New lead captured",
-          body: cleanName || normalizedEmail || cleanPhone || "A visitor submitted their details.",
-          entityType: "Lead",
-          entityId: lead.id,
-        },
-      });
+      // Notify only on a genuinely new lead, or resubmitting the form would
+      // ring the bell again for somebody the team has already seen.
+      if (!alreadyCounted) {
+        await tx.notification.create({
+          data: {
+            tenantId: conversation.tenantId,
+            type: "LEAD_CREATED",
+            title: "New lead captured",
+            body: cleanName || normalizedEmail || cleanPhone || "A visitor submitted their details.",
+            entityType: "Lead",
+            entityId: lead.id,
+          },
+        });
+      }
 
       if (conversation.campaignContactId) {
         await tx.campaignContact.updateMany({
@@ -135,7 +158,7 @@ export async function POST(req: NextRequest) {
         });
       }
       const attributedCampaignId = conversation.campaignId ?? conversation.campaignContact?.campaignId ?? null;
-      if (attributedCampaignId) {
+      if (attributedCampaignId && !alreadyCounted) {
         await tx.campaign.updateMany({
           where: { id: attributedCampaignId },
           data: { conversionsCount: { increment: 1 } },
