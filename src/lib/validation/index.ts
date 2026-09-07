@@ -46,10 +46,11 @@ export const createTenantSchema = z.object({
   adminEmail: emailSchema,
   adminName: nameSchema.optional(),
   planTier: z.enum(["FREE", "STARTER", "PRO", "ENTERPRISE"]).default("STARTER"),
-  maxMessagesPerMonth: z.number().int().min(0).default(5000),
-  maxFlows: z.number().int().min(0).default(5),
-  maxCampaignLinks: z.number().int().min(0).default(50),
-  maxStorageMb: z.number().int().min(0).default(100),
+  // 0 means unlimited, which is the default for every new workspace.
+  maxMessagesPerMonth: z.number().int().min(0).default(0),
+  maxFlows: z.number().int().min(0).default(0),
+  maxCampaignLinks: z.number().int().min(0).default(0),
+  maxStorageMb: z.number().int().min(0).default(0),
 });
 
 // Contact validation schemas

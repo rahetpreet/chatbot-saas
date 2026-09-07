@@ -44,10 +44,14 @@ export class TenantService {
           slug,
           status: "ACTIVE",
           planTier: planCode,
-          maxMessagesPerMonth: input.maxMessagesPerMonth ?? 5000,
-          maxFlows: input.maxFlows ?? 5,
-          maxCampaignLinks: input.maxCampaignLinks ?? 50,
-          maxStorageMb: input.maxStorageMb ?? 100,
+          // 0 means unlimited. A new workspace gets no cap on anything;
+          // leaving 5000 here was misleading, since nothing enforced it and the
+          // dashboard still drew a usage bar against a number that meant
+          // nothing.
+          maxMessagesPerMonth: input.maxMessagesPerMonth ?? 0,
+          maxFlows: input.maxFlows ?? 0,
+          maxCampaignLinks: input.maxCampaignLinks ?? 0,
+          maxStorageMb: input.maxStorageMb ?? 0,
         },
       });
 

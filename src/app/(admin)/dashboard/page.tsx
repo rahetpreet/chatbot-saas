@@ -319,22 +319,30 @@ export default function DashboardOverviewPage() {
               <QuickAction href="/conversations" icon={MessageSquare} label="Inbox" />
             </div>
 
-            {data?.usage && data.usage.messageLimit > 0 && (
+            {data?.usage && (
               <div className="mt-3 rounded-lg border border-slate-200 px-3 py-2">
                 <div className="flex items-baseline justify-between text-[11px]">
                   <span className="font-semibold text-slate-600">Messages this period</span>
                   <span className="font-bold text-slate-900" style={{ fontVariantNumeric: "tabular-nums" }}>
-                    {data.usage.messagesThisPeriod.toLocaleString()} / {data.usage.messageLimit.toLocaleString()}
+                    {data.usage.messagesThisPeriod.toLocaleString()}
+                    {data.usage.messageLimit > 0 ? ` / ${data.usage.messageLimit.toLocaleString()}` : ""}
                   </span>
                 </div>
-                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-indigo-500"
-                    style={{
-                      width: `${Math.min(100, (data.usage.messagesThisPeriod / data.usage.messageLimit) * 100)}%`,
-                    }}
-                  />
-                </div>
+                {/* A bar needs something to fill. With no cap there is nothing
+                    to measure against, so the count stands on its own rather
+                    than drawing a meter against an imaginary ceiling. */}
+                {data.usage.messageLimit > 0 ? (
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{
+                        width: `${Math.min(100, (data.usage.messagesThisPeriod / data.usage.messageLimit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-0.5 text-[10px] text-slate-400">No limit on your plan.</p>
+                )}
               </div>
             )}
           </CardContent>
