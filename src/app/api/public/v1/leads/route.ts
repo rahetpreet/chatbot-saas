@@ -7,6 +7,7 @@ import { isAllowedPublicOrigin, parseAllowedDomains, publicCorsPreflight, withPu
 import { markTrackingLinkConverted } from "@/lib/services/tracking";
 import { normalizeEmail, normalizeName, normalizePhone } from "@/lib/services/contact/normalize";
 import { EVENT, recordEventsTx } from "@/lib/services/analytics/events";
+import { notifyLeadCaptured } from "@/lib/services/notifications/leadAlerts";
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -165,12 +166,51 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return { lead, contact };
+      return { lead, contact, alreadyNotified: alreadyCounted > 0 };
     });
+
+    const alreadyNotified = result.alreadyNotified;
 
     // Conversion is recorded per link, so a campaign's open → chat → lead
     // funnel can be read end to end.
     await markTrackingLinkConverted(conversation.trackingLinkId);
+
+    // Tell the workspace, on whichever channels they switched on.
+    //
+    // Awaited, not fired and forgotten: this function is frozen the moment the
+    // response returns, so a dangling promise would never actually send. It
+    // runs after the transaction because the lead must be saved whether or not
+    // an alert can be delivered, and notifyLeadCaptured swallows its own
+    // failures for the same reason.
+    if (!alreadyNotified) {
+      const context = await prisma.conversation.findUnique({
+        where: { id: conversation.id },
+        select: {
+          tenant: { select: { name: true } },
+          flow: { select: { name: true } },
+          campaign: { select: { name: true } },
+        },
+      });
+      let interest: string | null = null;
+      try {
+        const collected = JSON.parse(conversation.collectedData || "{}");
+        const choice = Object.entries(collected).find(([key]) => /choice|selection|interest|need|service/i.test(key));
+        if (choice && typeof choice[1] === "string") interest = choice[1];
+      } catch {
+        /* a malformed blob simply means no interest line */
+      }
+
+      await notifyLeadCaptured({
+        tenantId: conversation.tenantId,
+        leadId: result.lead.id,
+        name: cleanName,
+        email: normalizedEmail,
+        phone: cleanPhone,
+        interest,
+        campaignName: context?.campaign?.name ?? null,
+        chatbotName: context?.flow?.name ?? null,
+      });
+    }
 
     return withPublicCors(
       NextResponse.json({ success: true, data: { leadId: result.lead.id } }),

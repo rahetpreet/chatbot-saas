@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/services/auth/session";
 import { getGenerationProviders, getPlatformAIConfigs } from "@/lib/services/ai";
 import { isDomainAutomationConfigured } from "@/lib/services/tenant/vercelDomains";
+import { isWebPushConfigured } from "@/lib/services/notifications/leadAlerts";
 import { isEncryptionConfigured } from "@/lib/security/crypto";
 import { getAppUrl } from "@/lib/appUrl";
 
@@ -199,6 +200,19 @@ function checkConfig(): Check[] {
         ? "AI keys and SMTP passwords are encrypted at rest."
         : "Stored unencrypted.",
       hint: isEncryptionConfigured() ? undefined : "Set ENCRYPTION_KEY (openssl rand -hex 32).",
+    },
+    {
+      key: "lead_alerts",
+      label: "Lead notifications",
+      // A warning, not a failure: Telegram and email work without these; only
+      // the phone-push channel needs them.
+      status: isWebPushConfigured() ? "ok" : "warn",
+      detail: isWebPushConfigured()
+        ? "Phone push is available to clients."
+        : "Phone push is unavailable; Telegram and email still work.",
+      hint: isWebPushConfigured()
+        ? undefined
+        : "Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (npx web-push generate-vapid-keys) to offer push notifications.",
     },
     {
       key: "domain_automation",

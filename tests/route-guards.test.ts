@@ -167,3 +167,36 @@ test("login is rate limited per account, not only per address", () => {
   // gets in is not left one slip from a lockout.
   assert.match(source, /resetRateLimit\(`login-account:/, "a successful sign-in does not clear the counter");
 });
+
+test("lead alerts are per workspace and never return a live token", () => {
+  const service = fs.readFileSync(
+    path.join(process.cwd(), "src", "lib", "services", "notifications", "leadAlerts.ts"),
+    "utf8",
+  );
+  const settings = fs.readFileSync(
+    path.join(API_ROOT, "client", "settings", "notifications", "route.ts"),
+    "utf8",
+  );
+
+  // Every lookup is keyed on the tenant that owns the lead, so one client's
+  // alerts can never reach another's phone.
+  assert.match(service, /where:\s*\{\s*tenantId:\s*alert\.tenantId\s*\}/, "settings are not looked up per tenant");
+  assert.match(service, /findMany\(\{\s*where:\s*\{\s*tenantId,/, "push devices are not scoped to the tenant");
+
+  // A bot token is a live credential: stored encrypted, never handed back.
+  assert.match(service, /decryptSecret\(settings\.telegramBotToken\)/, "the token is not decrypted at use");
+  assert.match(settings, /maskSecret\(/, "the settings endpoint does not mask the token");
+  assert.ok(
+    !/telegramBotToken:\s*settings\?\.telegramBotToken/.test(settings),
+    "the settings endpoint returns the stored token to the browser",
+  );
+
+  // The alert must never take the lead down with it.
+  assert.match(service, /catch[\s\S]{0,200}dispatch failed/, "dispatch failures are not contained");
+
+  // Awaited, not fired and forgotten: a dangling promise is never delivered on
+  // serverless, which is how the short-link counter lost every click.
+  const capture = fs.readFileSync(path.join(API_ROOT, "public", "v1", "leads", "route.ts"), "utf8");
+  assert.match(capture, /await notifyLeadCaptured\(/, "the alert is not awaited");
+  assert.match(capture, /if \(!alreadyNotified\)/, "a resubmitted form would alert the team twice");
+});

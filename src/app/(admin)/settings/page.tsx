@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { KnowledgeImport } from "@/components/settings/KnowledgeImport";
 import { TeamPanel } from "@/components/settings/TeamPanel";
+import { LeadNotifications } from "@/components/settings/LeadNotifications";
 import {
   Mail,
   Sparkles,
@@ -23,10 +24,11 @@ import {
   ShieldCheck,
   KeyRound,
   Lock,
+  Bell,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"ai" | "knowledge" | "team" | "security">("ai");
+  const [activeTab, setActiveTab] = useState<"ai" | "knowledge" | "team" | "alerts" | "security">("ai");
   const [aiPlatform, setAiPlatform] = useState<{ available: boolean; provider: string | null; model: string | null } | null>(null);
 
   // Security & Password state
@@ -243,6 +245,16 @@ export default function SettingsPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab("alerts")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+            activeTab === "alerts" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Bell className="w-4 h-4" />
+          <span>Lead Alerts</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab("security")}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
             activeTab === "security" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
@@ -436,6 +448,8 @@ export default function SettingsPage() {
 
       {/* TAB 4: Security & Password */}
       {activeTab === "team" && <TeamPanel />}
+
+      {activeTab === "alerts" && <LeadNotifications />}
 
       {activeTab === "security" && (
         <div className="space-y-4 animate-fade-in">

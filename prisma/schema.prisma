@@ -61,6 +61,10 @@ model Tenant {
   notifications    Notification[]
   shortLinks       ShortLink[]
 
+  notificationSetting NotificationSetting?
+
+  pushSubscriptions   PushSubscription[]
+
   reportSnapshots  ReportSnapshot[]
 
   dailyAnalytics   DailyAnalytics[]
@@ -98,6 +102,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
 
   @@index([tenantId])
+  pushSubscriptions PushSubscription[]
+
   @@index([email])
   @@index([isActive])
   @@index([deletedAt])
@@ -793,4 +799,65 @@ model DailyAnalytics {
   @@unique([tenantId, day, scope])
   @@index([tenantId, day])
   @@index([tenantId, scope, day])
+}
+
+/// Where a workspace wants to be told about new leads.
+///
+/// One row per workspace, so a client's alerts only ever reach that client.
+/// Secrets are encrypted at rest with the same helper as AI keys and SMTP
+/// passwords; nothing here is ever returned to a browser in the clear.
+model NotificationSetting {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  /// Master switch. Off means no channel fires, whatever else is configured.
+  leadAlerts Boolean @default(true)
+
+  telegramEnabled  Boolean @default(false)
+  /// Encrypted. Each workspace uses its own bot so one client's token can
+  /// never be used to message another's chat.
+  telegramBotToken String?
+  telegramChatId   String?
+
+  emailEnabled Boolean @default(false)
+  /// Comma-separated; a sales team usually wants more than one address.
+  emailTo      String?
+
+  webPushEnabled Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/// A browser that has agreed to receive push notifications.
+///
+/// Tied to both the workspace and the person, so revoking one user's access
+/// stops their device without affecting colleagues.
+model PushSubscription {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String
+
+  /// The browser's own endpoint URL, unique per device+browser.
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  userAgent String?
+  createdAt DateTime  @default(now())
+  lastUsedAt DateTime @default(now())
+  /// Set when the browser reports the subscription is gone, so a dead device
+  /// stops being retried on every lead.
+  failedAt  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, failedAt])
 }

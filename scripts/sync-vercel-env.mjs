@@ -53,6 +53,9 @@ const SYNCED = [
   },
   { key: "VERCEL_PROJECT_ID", why: "From .vercel/project.json. Injected on Vercel, so usually not needed here." },
   { key: "VERCEL_TEAM_ID", why: "Only when the project belongs to a team. This is orgId in .vercel/project.json." },
+  { key: "VAPID_PUBLIC_KEY", why: "Web push for lead alerts. Changing it unsubscribes every device." },
+  { key: "VAPID_PRIVATE_KEY", why: "Web push signing key. Server only." },
+  { key: "VAPID_SUBJECT", why: "Contact address push services require, as mailto:..." },
   {
     key: "STORAGE_PROVIDER",
     why: "Must be 'blob' in production; 'local' is refused on serverless.",
