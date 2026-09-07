@@ -17,9 +17,10 @@
     "audit:analytics": "tsx scripts/audit-analytics.ts",
     "audit:isolation": "tsx scripts/audit-isolation.ts",
     "audit:domains": "tsx scripts/audit-domains.ts",
-    "audit:all": "npm test && npm run audit:onboarding && npm run audit:e2e && npm run audit:analytics && npm run audit:isolation && npm run audit:domains",
+    "audit:all": "npm test && npm run audit:onboarding && npm run audit:e2e && npm run audit:analytics && npm run audit:isolation && npm run audit:domains && npm run audit:notifications",
     "audit:e2e": "tsx scripts/audit-e2e.ts",
-    "audit:onboarding": "tsx scripts/audit-onboarding.ts"
+    "audit:onboarding": "tsx scripts/audit-onboarding.ts",
+    "audit:notifications": "tsx scripts/audit-notifications.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
