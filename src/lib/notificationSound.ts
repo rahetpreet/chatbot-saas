@@ -44,21 +44,63 @@ function tone(ctx: AudioContext, frequency: number, startAt: number, duration: n
   oscillator.stop(startAt + duration + 0.02);
 }
 
+/**
+ * Unlocks audio on the agent's first interaction with the page.
+ *
+ * This is the whole reason the chime never played. A browser will only start an
+ * audio context inside a user gesture, and the chime is fired from a background
+ * poll — never a gesture. So the context was created suspended and stayed
+ * suspended forever, and every alert was silently dropped.
+ *
+ * Calling `resume()` from the poll did not help either: it is asynchronous, so
+ * the notes were scheduled against a clock that had not started yet and had
+ * already elapsed by the time it did.
+ *
+ * Listening once for any click, key or touch fixes it: by the time a
+ * conversation arrives, the context is already running.
+ */
+export function unlockNotificationSound(): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  const unlock = () => {
+    const ctx = getContext();
+    if (!ctx) return;
+    // Resuming an already-running context is a no-op, so this is safe to call
+    // on whichever gesture happens to come first.
+    if (ctx.state === "suspended") void ctx.resume();
+  };
+
+  const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"];
+  for (const event of events) window.addEventListener(event, unlock, { once: true, passive: true });
+
+  return () => {
+    for (const event of events) window.removeEventListener(event, unlock);
+  };
+}
+
 export function playNewConversationChime(volume = 0.18): void {
   const ctx = getContext();
   if (!ctx) return;
 
   try {
-    // Autoplay policy suspends the context until a gesture; resuming is
-    // harmless when it is already running.
-    if (ctx.state === "suspended") void ctx.resume();
-
-    const now = ctx.currentTime;
-    tone(ctx, 880, now, 0.16, volume); // A5
-    tone(ctx, 1174.7, now + 0.13, 0.22, volume); // D6
+    if (ctx.state === "suspended") {
+      // Still locked, so the agent has not interacted with the page yet.
+      // Schedule the notes only once it is actually running, or they play
+      // against a clock that has not started and are never heard.
+      void ctx.resume().then(() => ring(ctx, volume)).catch(() => undefined);
+      return;
+    }
+    ring(ctx, volume);
   } catch {
     /* audio is a nicety; never let it break the page */
   }
+}
+
+/** The two notes themselves, scheduled from the context's current clock. */
+function ring(ctx: AudioContext, volume: number): void {
+  const now = ctx.currentTime;
+  tone(ctx, 880, now, 0.16, volume); // A5
+  tone(ctx, 1174.7, now + 0.13, 0.22, volume); // D6
 }
 
 const SEEN_KEY = "chatflow_seen_conversations";

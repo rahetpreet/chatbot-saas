@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense, use } from "react";
+import { scrollTranscriptToBottom } from "@/lib/scrollTranscript";
 import { useSearchParams } from "next/navigation";
 import { Bot, User, Send, Paperclip, Sparkles, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -24,10 +25,13 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
   const [isInitializing, setIsInitializing] = useState(true);
   const [fatalError, setFatalError] = useState<{ code: string; message: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  /** The scrolling panel itself, so only it moves. */
+  const transcriptPanelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only this panel scrolls; scrollIntoView would drag the page with it.
+    scrollTranscriptToBottom(transcriptPanelRef.current, { smooth: true });
   };
 
   useEffect(() => {
@@ -312,7 +316,7 @@ function CampaignChatContainer({ tenantSlug, initialFlowId }: { tenantSlug: stri
         </div>
 
         {/* Message Feed */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50">
+        <div ref={transcriptPanelRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50">
           {messages.map((msg, idx) => {
             const isBot = msg.senderType === "BOT" || msg.senderType === "AI" || msg.senderType === "AGENT";
             if (msg.senderType === "SYSTEM") {

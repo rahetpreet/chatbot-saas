@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { scrollTranscriptToBottom } from "@/lib/scrollTranscript";
 import { useRouter } from "next/navigation";
 import { Headset, Send, RefreshCw, LogOut, Clock, User, Bot, CheckCircle2, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SkeletonList, LoadingPanel } from "@/components/ui/Loading";
-import { playNewConversationChime } from "@/lib/notificationSound";
+import { playNewConversationChime, unlockNotificationSound } from "@/lib/notificationSound";
 
 interface QueueItem {
   id: string;
@@ -51,9 +52,15 @@ export default function AgentConsolePage() {
   const [error, setError] = useState<string | null>(null);
 
   const transcriptEnd = useRef<HTMLDivElement>(null);
+  /** The scrolling panel itself, so only it moves. */
+  const transcriptPanelRef = useRef<HTMLDivElement>(null);
   const knownIds = useRef<Set<string> | null>(null);
   const selectedRef = useRef<string | null>(null);
   const soundRef = useRef(true);
+
+  // Same reason as the inbox: the chime fires from a poll, so the audio
+  // context has to be started by a real gesture first or it stays suspended.
+  useEffect(() => unlockNotificationSound(), []);
 
   useEffect(() => {
     soundRef.current = soundOn;
@@ -130,7 +137,8 @@ export default function AgentConsolePage() {
   }, [me, loadQueue, openConversation]);
 
   useEffect(() => {
-    transcriptEnd.current?.scrollIntoView({ behavior: "smooth" });
+    // Only this panel scrolls; scrollIntoView would drag the page with it.
+    scrollTranscriptToBottom(transcriptPanelRef.current, { smooth: true });
   }, [detail?.messages]);
 
   const sendReply = async (event: React.FormEvent) => {
@@ -297,7 +305,7 @@ export default function AgentConsolePage() {
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+              <div ref={transcriptPanelRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-slate-50">
                 {(detail.messages || []).map((message: any, index: number) => {
                   const fromVisitor = message.senderType === "VISITOR";
                   const fromSystem = message.senderType === "SYSTEM";

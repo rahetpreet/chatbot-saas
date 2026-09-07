@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { scrollTranscriptToBottom } from "@/lib/scrollTranscript";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { RefreshCw, Send, Bot, User, Sparkles, CheckCircle2, Paperclip } from "lucide-react";
@@ -25,9 +26,12 @@ export function FlowSimulatorModal({ isOpen, onClose, flowId, nodes, edges, tena
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  /** The scrolling panel itself, so only it moves. */
+  const transcriptPanelRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only this panel scrolls; scrollIntoView would drag the page with it.
+    scrollTranscriptToBottom(transcriptPanelRef.current, { smooth: true });
   };
 
   useEffect(() => {
@@ -169,7 +173,7 @@ export function FlowSimulatorModal({ isOpen, onClose, flowId, nodes, edges, tena
           </div>
 
           {/* Chat Messages Body */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div ref={transcriptPanelRef} className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((msg, idx) => (
               <div
                 key={idx}

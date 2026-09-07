@@ -23,7 +23,13 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { describeVisitor } from "@/lib/services/conversation/identity";
-import { playNewConversationChime, isUnread, markConversationRead, markAllRead } from "@/lib/notificationSound";
+import {
+  playNewConversationChime,
+  unlockNotificationSound,
+  isUnread,
+  markConversationRead,
+  markAllRead,
+} from "@/lib/notificationSound";
 import { SkeletonList, LoadingPanel } from "@/components/ui/Loading";
 
 function LiveConversationsInbox() {
@@ -46,15 +52,46 @@ function LiveConversationsInbox() {
   const knownIdsRef = useRef<Set<string> | null>(null);
   const soundOnRef = useRef(true);
   const selectedConversationRef = useRef<string | null>(null);
+  /**
+   * Cheap signatures of what is already on screen.
+   *
+   * The poll used to call setState unconditionally every five seconds, so React
+   * re-rendered the whole inbox — and moved it — even when the response was
+   * byte-for-byte what was already displayed. Comparing first means an idle
+   * inbox is completely still.
+   */
+  const listSignatureRef = useRef<string>("");
+  const detailSignatureRef = useRef<string>("");
+  /** Message count of the open chat, to tell a refresh from a real new message. */
+  const messageCountRef = useRef<number>(0);
+  /** The scrolling transcript element, so we can tell whether the agent is at the bottom. */
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
-  const fetchConversations = async (autoSelectId?: string) => {
+  /**
+   * @param background true for the five-second poll.
+   *
+   * A background refresh must not touch the loading flag. Setting it re-rendered
+   * the whole inbox twice every five seconds and span the refresh icon as though
+   * the agent had asked for something, when nothing had happened at all.
+   */
+  const fetchConversations = async (autoSelectId?: string, background = false) => {
+    if (!background) setLoading(true);
     try {
       let url = "/api/client/conversations";
       if (statusFilter !== "ALL") url += `?status=${statusFilter}`;
       const res = await fetch(url);
       const data = await res.json();
       const list = data.conversations || [];
-      setConversations(list);
+
+      // Ordered ids plus each row's last activity: enough to notice a new chat,
+      // a new message or a status change, and nothing else.
+      const signature = list
+        .map((c: any) => `${c.id}:${c.lastActiveAt}:${c.sessionStatus}:${c._count?.messages ?? 0}`)
+        .join("|");
+      if (signature !== listSignatureRef.current) {
+        listSignatureRef.current = signature;
+        setConversations(list);
+      }
 
       // First load establishes the baseline; everything already there is not
       // an "arrival", or the agent would be chimed at on every page open.
@@ -67,7 +104,15 @@ function LiveConversationsInbox() {
         if (arrived.length && soundOnRef.current) playNewConversationChime();
       }
 
-      setUnreadIds(new Set(list.filter((conversation: any) => isUnread(conversation)).map((c: any) => c.id)));
+      // Only replace the set when membership actually changed. Handing React
+      // a fresh Set every five seconds re-rendered the entire inbox — every row
+      // and every click handler — on a timer, whether or not anything had
+      // happened. An idle inbox should be completely inert.
+      const unread = list.filter((conversation: any) => isUnread(conversation)).map((c: any) => c.id);
+      setUnreadIds((current) => {
+        if (current.size === unread.length && unread.every((id: string) => current.has(id))) return current;
+        return new Set<string>(unread);
+      });
 
       // Auto-select ONLY when nothing is open. This runs on a 5s poll, and
       // reading selectedConversation from the closure gave a stale value, so
@@ -85,7 +130,7 @@ function LiveConversationsInbox() {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   };
 
@@ -93,14 +138,37 @@ function LiveConversationsInbox() {
     // Claim the selection before awaiting. The effect that syncs this ref runs
     // after render, which left a window where a poll could auto-select over
     // the conversation the agent had just clicked.
+    // Opening a different conversation starts fresh: the signature and message
+    // count belong to the previous one and would suppress the first render.
+    if (selectedConversationRef.current !== id) {
+      detailSignatureRef.current = "";
+      messageCountRef.current = 0;
+    }
     selectedConversationRef.current = id;
     if (showSpinner) setDetailLoading(true);
     try {
       const res = await fetch(`/api/client/conversations/${id}`);
       const data = await res.json();
+      // Discard a response for a conversation that is no longer open.
+      //
+      // The five-second poll and a click both call this. If the poll's request
+      // for the previously open chat was already in flight when the agent
+      // clicked a different one, its reply lands last and overwrites the
+      // selection — the click appeared to do nothing, or to open the wrong
+      // conversation. Whichever id is current when the reply arrives wins.
+      if (selectedConversationRef.current !== id) return;
+
       const conversation = data.conversation || data.data?.conversation;
       if (conversation) {
-        setSelectedConversation(conversation);
+        // A poll that finds nothing new must not replace the object: doing so
+        // re-rendered the transcript and threw the reader back to the bottom.
+        const messages = conversation.messages || [];
+        const signature = `${conversation.id}:${conversation.sessionStatus}:${messages.length}:${
+          messages[messages.length - 1]?.id ?? ""
+        }`;
+        const changed = signature !== detailSignatureRef.current;
+        detailSignatureRef.current = signature;
+        if (changed) setSelectedConversation(conversation);
         // Opening it is what marks it read, so a conversation that receives a
         // new message afterwards becomes unread again.
         markConversationRead(conversation.id);
@@ -123,7 +191,7 @@ function LiveConversationsInbox() {
     // The list was never refreshed, so a brand-new conversation only appeared
     // after a manual reload -- which is why arrivals went unnoticed.
     const timer = setInterval(() => {
-      fetchConversations();
+      fetchConversations(undefined, true);
       if (selectedConversationRef.current) {
         loadConversationDetails(selectedConversationRef.current);
       }
@@ -132,12 +200,45 @@ function LiveConversationsInbox() {
   }, [statusFilter]);
 
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedConversation?.messages]);
+    const messages = selectedConversation?.messages || [];
+    const previousCount = messageCountRef.current;
+    messageCountRef.current = messages.length;
+
+    // Opening a chat jumps to the newest message; after that, only a genuinely
+    // new message scrolls, and only when the agent is already near the bottom.
+    // Scrolling someone who has deliberately gone back to read earlier
+    // messages is what made the inbox feel like it was fighting them.
+    if (!messages.length) return;
+
+    const container = transcriptRef.current;
+    const openedFresh = previousCount === 0;
+    const grew = messages.length > previousCount;
+    if (!openedFresh && !grew) return;
+
+    if (!openedFresh && container) {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom > 120) return;
+    }
+
+    // Scroll the transcript itself, never scrollIntoView.
+    //
+    // scrollIntoView walks up and scrolls EVERY scrollable ancestor, so it
+    // dragged the whole page down and pushed the conversation list out of
+    // view — the inbox appeared to jump upwards on its own every few seconds,
+    // and the list you were trying to click went off screen. Setting scrollTop
+    // moves only this panel.
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: openedFresh ? "auto" : "smooth" });
+  }, [selectedConversation?.id, selectedConversation?.messages]);
 
   useEffect(() => {
     soundOnRef.current = soundOn;
   }, [soundOn]);
+
+  // Arm the chime. Browsers only start audio inside a user gesture, and the
+  // chime fires from a background poll, so without this the context stayed
+  // suspended and every alert was silently dropped.
+  useEffect(() => unlockNotificationSound(), []);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation?.id ?? null;
@@ -254,7 +355,7 @@ function LiveConversationsInbox() {
       {/* 2-Pane Inbox Box */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden h-[calc(100vh-14rem)] min-h-[580px]">
         {/* Left Pane (4 Cols): Threads List */}
-        <div className="lg:col-span-5 border-r border-slate-200 flex flex-col h-full bg-slate-50/50">
+        <div className="lg:col-span-5 border-r border-slate-200 flex flex-col h-full min-h-0 bg-slate-50/50">
           {/* Filter Tabs */}
           <div className="p-3 border-b border-slate-200 bg-white space-y-2">
             <div className="relative">
@@ -286,7 +387,7 @@ function LiveConversationsInbox() {
           </div>
 
           {/* Conversations Thread Feed */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
             {loading && conversations.length === 0 ? (
               <div className="p-3">
                 <SkeletonList rows={6} />
@@ -347,7 +448,7 @@ function LiveConversationsInbox() {
         </div>
 
         {/* Right Pane (7 Cols): Active Chat Transcript & Agent Reply */}
-        <div className="lg:col-span-7 flex flex-col h-full bg-white">
+        <div className="lg:col-span-7 flex flex-col h-full min-h-0 bg-white">
           {selectedConversation ? (
             <>
               {/* Transcript Header */}
@@ -405,7 +506,7 @@ function LiveConversationsInbox() {
               </div>
 
               {/* Message Transcript View */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+              <div ref={transcriptRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
                 {(selectedConversation.messages || []).map((msg: any) => {
                   const isAgent = msg.senderType === "AGENT";
                   const isBot = msg.senderType === "BOT" || msg.senderType === "AI";
