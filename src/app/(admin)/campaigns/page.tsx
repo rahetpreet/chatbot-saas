@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -23,6 +23,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { importContactsFromFile } from "@/lib/services/contact/bulkImport";
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -57,6 +58,15 @@ export default function CampaignsPage() {
   const [qrContactSlug, setQrContactSlug] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  /** Live progress for a streamed import, so a ten-lakh file is not a frozen dialog. */
+  const [importProgress, setImportProgress] = useState<{
+    processed: number;
+    imported: number;
+    skipped: number;
+    total: number | null;
+    percent: number | null;
+  } | null>(null);
+  const cancelImportRef = useRef(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -177,36 +187,62 @@ export default function CampaignsPage() {
     setImporting(true);
 
     try {
-      const formData = new FormData();
+      // A file is streamed and sent in batches, whatever its size. Only pasted
+      // text takes the single-request path, since it is necessarily small.
       if (csvFile) {
-        formData.append("file", csvFile);
-      } else if (csvRawText) {
-        formData.append("csvText", csvRawText);
-      } else {
-        alert("Please select a CSV file or paste CSV text.");
-        setImporting(false);
+        cancelImportRef.current = false;
+        setImportProgress({ processed: 0, imported: 0, skipped: 0, total: null, percent: null });
+
+        const outcome = await importContactsFromFile({
+          file: csvFile,
+          campaignId: selectedCampaign.id,
+          onProgress: setImportProgress,
+          shouldCancel: () => cancelImportRef.current,
+        });
+
+        setImportProgress(null);
+
+        if (outcome.error) {
+          setActionError(
+            `${outcome.error} ${outcome.imported.toLocaleString()} contact(s) were imported before it stopped.`,
+          );
+        } else if (outcome.cancelled) {
+          setActionError(`Import stopped. ${outcome.imported.toLocaleString()} contact(s) were saved.`);
+        } else {
+          setIsCsvModalOpen(false);
+          setCsvFile(null);
+          setCsvRawText("");
+          setActionError(null);
+        }
+        await loadCampaignDetails(selectedCampaign.id);
         return;
       }
 
+      if (!csvRawText) {
+        setActionError("Choose a CSV file or paste some rows first.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("csvText", csvRawText);
       const res = await fetch(`/api/client/campaigns/${selectedCampaign.id}/import-csv`, {
         method: "POST",
         body: formData,
       });
-
       const data = await res.json();
       if (data.success) {
         setIsCsvModalOpen(false);
-        setCsvFile(null);
         setCsvRawText("");
-        loadCampaignDetails(selectedCampaign.id);
-        alert(data.message);
+        setActionError(null);
+        await loadCampaignDetails(selectedCampaign.id);
       } else {
-        alert(data.error || "CSV import error");
+        setActionError(data.error?.message || data.error || "Could not import those rows.");
       }
-    } catch {
-      alert("Network error during CSV import");
+    } catch (e: any) {
+      setActionError(e?.message || "Something went wrong during the import.");
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -557,10 +593,66 @@ export default function CampaignsPage() {
         description="Upload a CSV with Name, Email, Phone columns. Unique trackable links will be generated automatically."
       >
         <form onSubmit={handleImportCsv} className="space-y-4 text-xs">
+          {/* Progress for a streamed import. A large file takes minutes, and a
+              dialog that simply sits there is indistinguishable from one that
+              has crashed. */}
+          {importProgress && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-xs font-bold text-indigo-900">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                  Importing…
+                </span>
+                <span className="text-[11px] font-bold text-indigo-900" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {importProgress.imported.toLocaleString()}
+                  {importProgress.total ? ` of ~${importProgress.total.toLocaleString()}` : ""}
+                </span>
+              </div>
+
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white">
+                {importProgress.percent !== null ? (
+                  <div
+                    className="h-full rounded-full bg-indigo-600 transition-all duration-300"
+                    style={{ width: `${importProgress.percent}%` }}
+                  />
+                ) : (
+                  // The row count is unknown until enough of the file has been
+                  // read to estimate it, so show motion rather than a figure
+                  // that would be wrong.
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-400" />
+                )}
+              </div>
+
+              <p className="mt-1.5 text-[11px] text-indigo-800">
+                {importProgress.processed.toLocaleString()} rows read
+                {importProgress.skipped > 0 && ` · ${importProgress.skipped.toLocaleString()} skipped (no name, email or phone)`}
+                . Keep this tab open until it finishes.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  cancelImportRef.current = true;
+                }}
+                className="mt-2 text-[11px] font-bold text-indigo-700 underline hover:text-indigo-900"
+              >
+                Stop importing
+              </button>
+            </div>
+          )}
+
+          {actionError && (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-800">
+              {actionError}
+            </p>
+          )}
           <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
             <Upload className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
             <p className="text-xs font-bold text-slate-800">Choose a CSV file from your computer</p>
             <p className="text-[11px] text-slate-400 mt-0.5">Headers supported: Name, Email, Phone, Company</p>
+            <p className="mt-0.5 text-[11px] font-semibold text-emerald-700">
+              Any size — a file with lakhs of rows is read in the background and imported in batches.
+            </p>
             <input
               type="file"
               accept=".csv"

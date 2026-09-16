@@ -1,5 +1,10 @@
 import prisma from "@/lib/prisma";
-import { getAIProvider, sanitizeUserPrompt } from "@/lib/services/ai";
+import {
+  getGenerationProviders,
+  describeProvider,
+  sanitizeUserPrompt,
+  type AIProvider,
+} from "@/lib/services/ai";
 import { recordUsage } from "@/lib/services/subscription/planLimits";
 
 /**
@@ -125,15 +130,48 @@ Rules:
 Company information:
 ${context}`;
 
-  const provider = getAIProvider(params.aiConfigJson);
+  // Walk every configured provider, not just the first.
+  //
+  // This used to call a single provider. When that one ran out of credit or
+  // went busy, every visitor question fell straight through to a human
+  // handover even though a second key was configured and working — the flow
+  // generator had a fallback chain and the visitor-facing answering did not.
+  const providers = getGenerationProviders(params.aiConfigJson);
+
   // Recorded before the call: a failed request still consumed provider quota.
   void recordUsage(params.tenantId, "ai_messages", 1);
-  const response = await provider.ask({
-    tenantId: params.tenantId,
-    userQuery: question,
-    systemPrompt: system,
-    conversationHistory: params.history?.slice(-6),
-  });
+
+  let response: Awaited<ReturnType<AIProvider["ask"]>> | null = null;
+  const attempts: string[] = [];
+
+  for (const provider of providers) {
+    try {
+      const attempt = await provider.ask({
+        tenantId: params.tenantId,
+        userQuery: question,
+        systemPrompt: system,
+        conversationHistory: params.history?.slice(-6),
+      });
+
+      // A provider that returned nothing usable is out of credit, rate
+      // limited, or down. Move to the next rather than giving up.
+      if (attempt.fallbackTriggered || !(attempt.content || "").trim()) {
+        attempts.push(`${describeProvider(provider)}: no usable reply`);
+        continue;
+      }
+      response = attempt;
+      break;
+    } catch (error: any) {
+      attempts.push(`${describeProvider(provider)}: ${error?.message || "failed"}`);
+    }
+  }
+
+  if (!response) {
+    // Every provider declined. Logged so an operator can see which key is
+    // exhausted rather than guessing why answering went quiet.
+    if (attempts.length) console.warn("[knowledge] every AI provider declined —", attempts.join("; "));
+    return { answered: false, content: "", handover: true, sources: [] };
+  }
 
   const content = (response.content || "").trim();
 

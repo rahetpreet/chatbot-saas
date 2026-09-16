@@ -318,6 +318,11 @@ model CampaignContact {
   @@index([campaignId])
   @@index([customUrlSlug])
   @@index([deletedAt])
+  // The campaign screen lists the newest contacts for one campaign. Without
+  // the sort column in the index, Postgres sorted every row in the campaign to
+  // return a hundred — a second per page once a campaign held a lakh.
+  @@index([campaignId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model Conversation {
