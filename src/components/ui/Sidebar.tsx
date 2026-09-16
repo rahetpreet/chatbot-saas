@@ -70,21 +70,14 @@ export function Sidebar({ role = "CLIENT_ADMIN", tenantName = "Company", tenantS
 
   const clientNavItems: NavItem[] = [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Flow Builder", href: "/flows", icon: GitBranch },
-    { label: "Campaigns & Links", href: "/campaigns", icon: Megaphone },
     { label: "Live Conversations", href: "/conversations", icon: MessageSquare },
     { label: "Captured Leads", href: "/leads", icon: Users },
+
+    { section: "Build", label: "Flow Builder", href: "/flows", icon: GitBranch },
+    { label: "Campaigns & Links", href: "/campaigns", icon: Megaphone },
     { label: "Widget Customizer", href: "/widget-customizer", icon: Palette },
 
-    { section: "Data & Reports", label: "Overview", href: "/analytics", icon: BarChart3 },
-    { label: "Chatbot Analytics", href: "/analytics/chatbots", icon: Bot },
-    { label: "Campaign Analytics", href: "/analytics/campaigns", icon: Megaphone },
-    { label: "Link Analytics", href: "/analytics/links", icon: LinkIcon },
-    { label: "Flow Analysis", href: "/analytics/flow", icon: GitBranch },
-    { label: "Lead Analysis", href: "/analytics/leads", icon: Users },
-    { label: "Conversation Analysis", href: "/analytics/conversations", icon: MessageSquare },
-    { label: "Drop-off Analysis", href: "/analytics/drop-off", icon: TrendingDown },
-    { label: "Reports & Exports", href: "/analytics/reports", icon: FileBarChart },
+    { section: "Insights", label: "Reports & Analytics", href: "/analytics", icon: BarChart3 },
 
     { section: "Account", label: "Settings", href: "/settings", icon: Settings },
   ];
